@@ -25,13 +25,39 @@ func main() {
 
 	// 打开内核驱动设备
 	var drv driver.Device
-	if client, err := driver.Open(devicePath); err != nil {
-		// 驱动未加载时仅警告，不阻塞启动，方便开发调试
-		log.Printf("警告: 打开驱动设备失败（驱动可能未加载）: %v", err)
-	} else {
+	client, err := driver.Open(devicePath)
+	if err == nil {
 		drv = client
 		defer client.Close()
-		log.Println("已连接内核驱动设备")
+		log.Println("检测到驱动已加载，直接连接内核驱动设备")
+	} else {
+		log.Printf("未检测到运行中的驱动 (%v)，尝试通过 DriverLoader 加载...", err)
+
+		// 尝试通过 DriverLoader 手动映射并加载驱动
+		loader, loaderErr := driver.NewLoader("DriverLoader.sys")
+		if loaderErr != nil {
+			log.Printf("警告: 初始化加载器失败: %v", loaderErr)
+		} else {
+			// 将 loader 的清理工作放到 defer，程序退出时自动卸载目标驱动并停止加载器
+			defer loader.Close()
+
+			log.Println("加载器初始化成功，尝试映射 OpenSysKit.sys...")
+			if handle, mapErr := loader.MapDriver("OpenSysKit.sys"); mapErr != nil {
+				log.Printf("警告: 映射驱动失败: %v", mapErr)
+			} else {
+				log.Printf("驱动映射成功，句柄: %d", handle)
+
+				// 再次尝试打开内核驱动设备
+				client, err = driver.Open(devicePath)
+				if err == nil {
+					drv = client
+					defer client.Close()
+					log.Println("已连接内核驱动设备")
+				} else {
+					log.Printf("警告: 驱动映射成功，但打开设备仍失败: %v", err)
+				}
+			}
+		}
 	}
 
 	// 创建 IPC 监听（命名管道）

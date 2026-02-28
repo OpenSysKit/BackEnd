@@ -5,6 +5,7 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -50,7 +51,7 @@ type Loader struct {
 // NewLoader 创建并连接到加载器，必要时安装服务
 func NewLoader(loaderSysPath string) (*Loader, error) {
 	l := &Loader{handle: syscall.InvalidHandle}
-	
+
 	// 尝试直接打开
 	if err := l.open(); err == nil {
 		l.ownService = false

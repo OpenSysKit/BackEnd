@@ -70,6 +70,21 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: 拉取最新驱动
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view --repo OpenSysKit/Driver --json tagName,assets | ConvertFrom-Json
+          Write-Host "驱动版本: $($release.tagName)"
+          New-Item -ItemType Directory -Force -Path bin/driver | Out-Null
+          foreach ($asset in $release.assets) {
+            if ($asset.name -like "*x64*") {
+              gh release download $release.tagName --repo OpenSysKit/Driver --pattern $asset.name --dir bin/driver
+              Expand-Archive -Path "bin/driver/$($asset.name)" -DestinationPath bin/driver/x64 -Force
+            }
+          }
+
       - name: 获取版本信息
         id: version
         shell: pwsh
@@ -90,4 +105,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OpenSysKit-${{ steps.version.outputs.TAG }}
-          path: bin/OpenSysKit.exe
+          path: |
+            bin/OpenSysKit.exe
+            bin/driver/x64/*.sys

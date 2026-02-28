@@ -58,6 +58,22 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: 拉取最新驱动
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $driverArch = if ("${{ matrix.arch }}" -eq "arm64") { "ARM64" } else { "x64" }
+          $release = gh release view --repo OpenSysKit/Driver --json tagName,assets | ConvertFrom-Json
+          Write-Host "驱动版本: $($release.tagName)"
+          New-Item -ItemType Directory -Force -Path driver | Out-Null
+          foreach ($asset in $release.assets) {
+            if ($asset.name -like "*$driverArch*") {
+              gh release download $release.tagName --repo OpenSysKit/Driver --pattern $asset.name --dir driver
+              Expand-Archive -Path "driver/$($asset.name)" -DestinationPath driver -Force
+            }
+          }
+
       - name: 编译
         shell: pwsh
         env:
@@ -71,7 +87,10 @@ jobs:
       - name: 打包
         shell: pwsh
         run: |
-          Compress-Archive -Path OpenSysKit.exe -DestinationPath "OpenSysKit-win-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.zip"
+          $files = @("OpenSysKit.exe")
+          $sysFiles = Get-ChildItem -Path driver -Filter "*.sys" -Recurse -ErrorAction SilentlyContinue
+          foreach ($f in $sysFiles) { $files += $f.FullName }
+          Compress-Archive -Path $files -DestinationPath "OpenSysKit-win-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -58,8 +58,12 @@ jobs:
         run: go vet ./...
 
   build:
-    name: 编译
+    name: 编译 (${{ matrix.arch }})
     needs: check
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,13 +79,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $driverArch = if ("${{ matrix.arch }}" -eq "arm64") { "ARM64" } else { "x64" }
           $release = gh release view --repo OpenSysKit/Driver --json tagName,assets | ConvertFrom-Json
           Write-Host "驱动版本: $($release.tagName)"
           New-Item -ItemType Directory -Force -Path bin/driver | Out-Null
           foreach ($asset in $release.assets) {
-            if ($asset.name -like "*x64*") {
+            if ($asset.name -like "*$driverArch*") {
               gh release download $release.tagName --repo OpenSysKit/Driver --pattern $asset.name --dir bin/driver
-              Expand-Archive -Path "bin/driver/$($asset.name)" -DestinationPath bin/driver/x64 -Force
+              Expand-Archive -Path "bin/driver/$($asset.name)" -DestinationPath bin/driver/$driverArch -Force
             }
           }
 
@@ -98,6 +103,10 @@ jobs:
 
       - name: 编译
         shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
         run: |
           $ldflags = "-s -w -X 'main.version=${{ steps.version.outputs.TAG }}' -X 'main.buildTime=${{ steps.version.outputs.BUILD_TIME }}'"
           go build -ldflags $ldflags -trimpath -o bin/OpenSysKit.exe ./cmd/server
@@ -105,7 +114,7 @@ jobs:
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: OpenSysKit-${{ steps.version.outputs.TAG }}
+          name: OpenSysKit-${{ matrix.arch }}-${{ steps.version.outputs.TAG }}
           path: |
             bin/OpenSysKit.exe
-            bin/driver/x64/*.sys
+            bin/driver/**/*.sys

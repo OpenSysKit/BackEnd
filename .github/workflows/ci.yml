@@ -91,7 +91,8 @@ jobs:
         run: |
           $tag = git describe --tags --always --dirty 2>$null
           if (-not $tag) { $tag = "dev" }
-          $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          $cst = [System.TimeZoneInfo]::FindSystemTimeZoneById("China Standard Time")
+          $time = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $cst).ToString("yyyy-MM-dd HH:mm:ss")
           echo "TAG=$tag" >> $env:GITHUB_OUTPUT
           echo "BUILD_TIME=$time" >> $env:GITHUB_OUTPUT
 

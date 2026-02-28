@@ -81,7 +81,9 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
         run: |
-          $ldflags = "-s -w -X 'main.version=${{ needs.meta.outputs.tag }}' -X 'main.buildTime=$(Get-Date -Format ''yyyy-MM-dd HH:mm:ss'')'"
+          $cst = [System.TimeZoneInfo]::FindSystemTimeZoneById("China Standard Time")
+          $buildTime = [System.TimeZoneInfo]::ConvertTimeFromUtc((Get-Date).ToUniversalTime(), $cst).ToString("yyyy-MM-dd HH:mm:ss")
+          $ldflags = "-s -w -X 'main.version=${{ needs.meta.outputs.tag }}' -X 'main.buildTime=$buildTime'"
           go build -ldflags $ldflags -trimpath -o OpenSysKit.exe ./cmd/server
 
       - name: 打包

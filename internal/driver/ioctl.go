@@ -36,8 +36,8 @@ type ProcessInfo struct {
 	ProcessId       uint32
 	ParentProcessId uint32
 	ThreadCount     uint32
-	_               uint32 // Padding for SIZE_T alignment on 64-bit
-	WorkingSetSize  uint64 // SIZE_T in Windows kernel is 64-bit on x64
+	_               uint32      // Padding for SIZE_T alignment on 64-bit
+	WorkingSetSize  uint64      // SIZE_T in Windows kernel is 64-bit on x64
 	ImageName       [260]uint16 // WCHAR is uint16
 }
 

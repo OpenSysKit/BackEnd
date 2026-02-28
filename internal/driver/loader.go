@@ -3,6 +3,7 @@ package driver
 import (
 	"fmt"
 	"syscall"
+	"time"
 	"unsafe"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -69,9 +70,18 @@ func NewLoader(loaderSysPath string) (*Loader, error) {
 		return nil, fmt.Errorf("安装加载器服务失败: %w", err)
 	}
 
-	if err := l.open(); err != nil {
+	// 驱动启动需要一定时间来注册符号链接，采用带延时的重试机制
+	var openErr error
+	for i := 0; i < 10; i++ {
+		if openErr = l.open(); openErr == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if openErr != nil {
 		l.m.Disconnect()
-		return nil, fmt.Errorf("服务启动后仍无法打开设备: %w", err)
+		return nil, fmt.Errorf("服务启动后仍无法打开设备(重试后): %w", openErr)
 	}
 
 	return l, nil
@@ -106,9 +116,19 @@ func (l *Loader) installAndStart(sysPath string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("[Loader] 准备安装服务, 驱动路径: %s\n", fullPath)
 
 	s, err := l.m.OpenService(loaderSvcName)
-	if err != nil {
+	if err == nil {
+		// 服务已存在，为防止之前的路径错误或文件位置改变，我们可以尝试更新配置或直接删除重建
+		// 简单起见，如果存在我们就直接更新 Config 中的 BinaryPathName
+		cfg, err := s.Config()
+		if err == nil && cfg.BinaryPathName != fullPath {
+			fmt.Printf("[Loader] 更新已存在服务的驱动路径从 %s 到 %s\n", cfg.BinaryPathName, fullPath)
+			cfg.BinaryPathName = fullPath
+			s.UpdateConfig(cfg)
+		}
+	} else {
 		// 服务不存在，创建它
 		cfg := mgr.Config{
 			ServiceType:  windows.SERVICE_KERNEL_DRIVER,
@@ -126,10 +146,11 @@ func (l *Loader) installAndStart(sysPath string) error {
 	// 启动服务
 	err = s.Start()
 	if err != nil {
-		// 忽略已经在运行的错误
-		// 这里的 error 可能不是特定的类型，需要强转或者匹配
-		// 简单处理：只要不是无法启动就行，之后 open() 会验证
+		// 这里可能是 ERROR_SERVICE_ALREADY_RUNNING 等等
+		// 记录一下但不直接退出，因为后续通过 open 探测才最准确
+		fmt.Printf("[Loader] StartService result: %v\n", err)
 	}
+
 	return nil
 }
 

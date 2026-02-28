@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/OpenSysKit/backend/internal/driver"
 	"github.com/OpenSysKit/backend/internal/ipc"
@@ -47,14 +48,20 @@ func main() {
 			} else {
 				log.Printf("驱动映射成功，句柄: %d", handle)
 
-				// 再次尝试打开内核驱动设备
-				client, err = driver.Open(devicePath)
-				if err == nil {
-					drv = client
-					defer client.Close()
-					log.Println("已连接内核驱动设备")
-				} else {
-					log.Printf("警告: 驱动映射成功，但打开设备仍失败: %v", err)
+				// 设备/符号链接注册需要时间，带退避重试
+				var openErr error
+				for i := 0; i < 10; i++ {
+					client, openErr = driver.Open(devicePath)
+					if openErr == nil {
+						drv = client
+						defer client.Close()
+						log.Println("已连接内核驱动设备")
+						break
+					}
+					time.Sleep(200 * time.Millisecond)
+				}
+				if openErr != nil {
+					log.Printf("警告: 驱动映射成功，但打开设备仍失败(重试后): %v", openErr)
 				}
 			}
 		}

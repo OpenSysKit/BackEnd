@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    name: 版本信息
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 解析版本
+        id: set_tag
+        run: |
+          tag="${{ github.ref_name }}"
+          is_release=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+          if ! $is_release; then
+            tag="$(date +v0.0.0-%y%m%d-$(git rev-parse --short HEAD))"
+          fi
+
+          is_prerelease=false
+          if [[ $tag =~ .*alpha.* || $tag =~ .*beta.* || $tag =~ .*rc.* || $tag =~ .*dev.* ]]; then
+            is_prerelease=true
+          fi
+
+          echo "tag=$tag" | tee -a $GITHUB_OUTPUT
+          echo "is_release=$is_release" | tee -a $GITHUB_OUTPUT
+          echo "is_prerelease=$is_prerelease" | tee -a $GITHUB_OUTPUT
+
+    outputs:
+      tag: ${{ steps.set_tag.outputs.tag }}
+      is_release: ${{ steps.set_tag.outputs.is_release }}
+      is_prerelease: ${{ steps.set_tag.outputs.is_prerelease }}
+
+  build:
+    name: 构建 (${{ matrix.arch }})
+    needs: meta
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+      fail-fast: false
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: 编译
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+        run: |
+          $ldflags = "-s -w -X 'main.version=${{ needs.meta.outputs.tag }}' -X 'main.buildTime=$(Get-Date -Format ''yyyy-MM-dd HH:mm:ss'')'"
+          go build -ldflags $ldflags -trimpath -o OpenSysKit.exe ./cmd/server
+
+      - name: 打包
+        shell: pwsh
+        run: |
+          Compress-Archive -Path OpenSysKit.exe -DestinationPath "OpenSysKit-win-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenSysKit-win-${{ matrix.arch }}
+          path: "OpenSysKit-win-${{ matrix.arch }}-${{ needs.meta.outputs.tag }}.zip"
+
+  changelog:
+    name: 生成更新日志
+    needs: meta
+    if: ${{ needs.meta.outputs.is_release == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 生成 changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: -vv --latest --strip header
+        env:
+          OUTPUT: CHANGES.md
+          GITHUB_REPO: ${{ github.repository }}
+
+    outputs:
+      release_body: ${{ steps.changelog.outputs.content }}
+
+  release:
+    name: 发布
+    if: ${{ needs.meta.outputs.is_release == 'true' }}
+    needs: [meta, build, changelog]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: OpenSysKit-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          tag_name: ${{ needs.meta.outputs.tag }}
+          body: ${{ needs.changelog.outputs.release_body }}
+          draft: false
+          prerelease: ${{ needs.meta.outputs.is_prerelease == 'true' }}

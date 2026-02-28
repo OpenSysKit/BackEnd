@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: ["**"]
+    paths:
+      - ".github/workflows/ci.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+
+jobs:
+  format:
+    name: 自动格式化
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt + go mod tidy
+        run: |
+          gofmt -w .
+          go mod tidy
+
+      - name: 提交格式化修改
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto format code"
+
+  check:
+    name: 静态检查
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+  build:
+    name: 编译
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: 获取版本信息
+        id: version
+        shell: pwsh
+        run: |
+          $tag = git describe --tags --always --dirty 2>$null
+          if (-not $tag) { $tag = "dev" }
+          $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          echo "TAG=$tag" >> $env:GITHUB_OUTPUT
+          echo "BUILD_TIME=$time" >> $env:GITHUB_OUTPUT
+
+      - name: 编译
+        shell: pwsh
+        run: |
+          $ldflags = "-s -w -X 'main.version=${{ steps.version.outputs.TAG }}' -X 'main.buildTime=${{ steps.version.outputs.BUILD_TIME }}'"
+          go build -ldflags $ldflags -trimpath -o bin/OpenSysKit.exe ./cmd/server
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenSysKit-${{ steps.version.outputs.TAG }}
+          path: bin/OpenSysKit.exe

@@ -22,8 +22,11 @@ var (
 	IOCTL_KILL_PROCESS      = CTL_CODE(deviceTypeOpenSysKit, 0x801, methodBuffered, fileAnyAccess)
 	IOCTL_FREEZE_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x802, methodBuffered, fileAnyAccess)
 	IOCTL_UNFREEZE_PROCESS  = CTL_CODE(deviceTypeOpenSysKit, 0x803, methodBuffered, fileAnyAccess)
-	IOCTL_PROTECT_PROCESS   = CTL_CODE(deviceTypeOpenSysKit, 0x804, methodBuffered, fileAnyAccess)
-	IOCTL_UNPROTECT_PROCESS = CTL_CODE(deviceTypeOpenSysKit, 0x805, methodBuffered, fileAnyAccess)
+
+	// WinDrive (DriverLoader) process-protect IOCTLs
+	IOCTL_WINDRIVE_PROTECT_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x807, methodBuffered, fileAnyAccess)
+	IOCTL_WINDRIVE_UNPROTECT_PROCESS  = CTL_CODE(deviceTypeOpenSysKit, 0x808, methodBuffered, fileAnyAccess)
+	IOCTL_WINDRIVE_SET_PROTECT_POLICY = CTL_CODE(deviceTypeOpenSysKit, 0x809, methodBuffered, fileAnyAccess)
 )
 
 // ProcessRequest 对应内核中 PROCESS_REQUEST 结构体
@@ -45,4 +48,11 @@ type ProcessInfo struct {
 type ProcessListHeader struct {
 	Count     uint32
 	TotalSize uint32
+}
+
+// ProtectPolicyRequest 对应 WinDrive 中 PROTECT_POLICY_REQUEST 结构体
+type ProtectPolicyRequest struct {
+	Version        uint32
+	DenyAccessMask uint32
+	Reserved       uint32
 }

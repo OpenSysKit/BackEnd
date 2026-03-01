@@ -17,10 +17,13 @@ type Server struct {
 
 // NewServer 创建 JSON-RPC 服务器并注册服务。
 // 传入 driver.Device 接口使 RPC 方法可以与内核驱动通信，可为 nil（驱动未加载时）。
-func NewServer(drv driver.Device) (*Server, error) {
+func NewServer(drv driver.Device, winDrive driver.Device) (*Server, error) {
 	s := rpc.NewServer()
 
-	toolkit := &service.ToolkitService{Driver: drv}
+	toolkit := &service.ToolkitService{
+		Driver:         drv,
+		WinDriveDriver: winDrive,
+	}
 	if err := s.RegisterName("Toolkit", toolkit); err != nil {
 		return nil, err
 	}

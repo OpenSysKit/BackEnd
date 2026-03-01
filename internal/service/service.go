@@ -12,7 +12,8 @@ import (
 // ToolkitService 暴露给前端的 JSON-RPC 服务。
 // 所有方法通过 Driver 接口与内核驱动通信。
 type ToolkitService struct {
-	Driver driver.Device
+	Driver         driver.Device
+	WinDriveDriver driver.Device
 }
 
 // PingArgs 连通性测试请求参数。
@@ -142,8 +143,8 @@ type ProtectProcessReply struct {
 
 // ProtectProcess 保护指定进程
 func (t *ToolkitService) ProtectProcess(args *ProtectProcessArgs, reply *ProtectProcessReply) error {
-	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+	if t.WinDriveDriver == nil {
+		return fmt.Errorf("WinDrive 未加载")
 	}
 
 	req := driver.ProcessRequest{ProcessId: args.ProcessId}
@@ -153,7 +154,7 @@ func (t *ToolkitService) ProtectProcess(args *ProtectProcessArgs, reply *Protect
 		return fmt.Errorf("构造请求失败: %w", err)
 	}
 
-	_, err = t.Driver.IoControl(driver.IOCTL_PROTECT_PROCESS, inBuf.Bytes(), 0)
+	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_PROTECT_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
 		return fmt.Errorf("保护进程失败: %w", err)
@@ -175,8 +176,8 @@ type UnprotectProcessReply struct {
 
 // UnprotectProcess 取消保护指定进程
 func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *UnprotectProcessReply) error {
-	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+	if t.WinDriveDriver == nil {
+		return fmt.Errorf("WinDrive 未加载")
 	}
 
 	req := driver.ProcessRequest{ProcessId: args.ProcessId}
@@ -186,10 +187,47 @@ func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *Unp
 		return fmt.Errorf("构造请求失败: %w", err)
 	}
 
-	_, err = t.Driver.IoControl(driver.IOCTL_UNPROTECT_PROCESS, inBuf.Bytes(), 0)
+	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_UNPROTECT_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
 		return fmt.Errorf("取消保护进程失败: %w", err)
+	}
+
+	reply.Success = true
+	return nil
+}
+
+// SetProtectPolicyArgs 设置 WinDrive 保护策略请求参数
+type SetProtectPolicyArgs struct {
+	Version        uint32 `json:"version"`
+	DenyAccessMask uint32 `json:"deny_access_mask"`
+}
+
+// SetProtectPolicyReply 设置 WinDrive 保护策略响应
+type SetProtectPolicyReply struct {
+	Success bool `json:"success"`
+}
+
+// SetProtectPolicy 下发 WinDrive 保护策略
+func (t *ToolkitService) SetProtectPolicy(args *SetProtectPolicyArgs, reply *SetProtectPolicyReply) error {
+	if t.WinDriveDriver == nil {
+		return fmt.Errorf("WinDrive 未加载")
+	}
+
+	req := driver.ProtectPolicyRequest{
+		Version:        args.Version,
+		DenyAccessMask: args.DenyAccessMask,
+	}
+	inBuf := new(bytes.Buffer)
+	err := binary.Write(inBuf, binary.LittleEndian, req)
+	if err != nil {
+		return fmt.Errorf("构造请求失败: %w", err)
+	}
+
+	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_SET_PROTECT_POLICY, inBuf.Bytes(), 0)
+	if err != nil {
+		reply.Success = false
+		return fmt.Errorf("设置保护策略失败: %w", err)
 	}
 
 	reply.Success = true

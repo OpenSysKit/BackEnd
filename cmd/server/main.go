@@ -13,6 +13,7 @@ import (
 )
 
 const devicePath = `\\.\OpenSysKit`
+const winDriveDevicePath = `\\.\DriverLoader`
 
 // 由 -ldflags 在编译时注入
 var (
@@ -26,6 +27,7 @@ func main() {
 
 	// 打开内核驱动设备
 	var drv driver.Device
+	var winDriveDrv driver.Device
 	client, err := driver.Open(devicePath)
 	if err == nil {
 		drv = client
@@ -67,6 +69,16 @@ func main() {
 		}
 	}
 
+	// 打开 WinDrive 设备（用于进程保护控制面）
+	winDriveClient, err := driver.Open(winDriveDevicePath)
+	if err != nil {
+		log.Printf("警告: 无法连接 WinDrive 设备 (%s): %v", winDriveDevicePath, err)
+	} else {
+		winDriveDrv = winDriveClient
+		defer winDriveClient.Close()
+		log.Println("已连接 WinDrive 设备")
+	}
+
 	// 创建 IPC 监听（命名管道）
 	ln, err := ipc.Listen()
 	if err != nil {
@@ -75,7 +87,7 @@ func main() {
 	defer ln.Close()
 
 	// 创建 JSON-RPC 服务器
-	srv, err := rpcserver.NewServer(drv)
+	srv, err := rpcserver.NewServer(drv, winDriveDrv)
 	if err != nil {
 		log.Fatalf("创建 RPC 服务器失败: %v", err)
 	}

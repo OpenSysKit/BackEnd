@@ -18,10 +18,10 @@ func CTL_CODE(deviceType, function, method, access uint32) uint32 {
 
 // IOCTL 控制码 参考 Driver/src/driver.h
 var (
-	IOCTL_ENUM_PROCESSES    = CTL_CODE(deviceTypeOpenSysKit, 0x800, methodBuffered, fileAnyAccess)
-	IOCTL_KILL_PROCESS      = CTL_CODE(deviceTypeOpenSysKit, 0x801, methodBuffered, fileAnyAccess)
-	IOCTL_FREEZE_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x802, methodBuffered, fileAnyAccess)
-	IOCTL_UNFREEZE_PROCESS  = CTL_CODE(deviceTypeOpenSysKit, 0x803, methodBuffered, fileAnyAccess)
+	IOCTL_ENUM_PROCESSES   = CTL_CODE(deviceTypeOpenSysKit, 0x800, methodBuffered, fileAnyAccess)
+	IOCTL_KILL_PROCESS     = CTL_CODE(deviceTypeOpenSysKit, 0x801, methodBuffered, fileAnyAccess)
+	IOCTL_FREEZE_PROCESS   = CTL_CODE(deviceTypeOpenSysKit, 0x802, methodBuffered, fileAnyAccess)
+	IOCTL_UNFREEZE_PROCESS = CTL_CODE(deviceTypeOpenSysKit, 0x803, methodBuffered, fileAnyAccess)
 
 	// WinDrive (DriverLoader) process-protect IOCTLs
 	IOCTL_WINDRIVE_PROTECT_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x807, methodBuffered, fileAnyAccess)

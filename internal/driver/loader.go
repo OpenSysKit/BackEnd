@@ -7,7 +7,6 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -222,34 +221,13 @@ func (l *Loader) Close() {
 	}
 	l.mappedHandles = nil
 
-	// 2. 如果是我们启动的，解锁加载器自身并停止服务
-	if l.ownService {
-		var returned uint32
-		_ = syscall.DeviceIoControl(
-			l.handle,
-			ioctlAllowUnload,
-			nil,
-			0,
-			nil,
-			0,
-			&returned,
-			nil,
-		)
-	}
-
-	// 3. 关闭句柄
+	// 2. 关闭设备句柄
 	syscall.Close(l.handle)
 	l.handle = syscall.InvalidHandle
 
-	// 4. 尝试停止并删除服务
-	if l.ownService && l.m != nil {
-		s, err := l.m.OpenService(loaderSvcName)
-		if err == nil {
-			status, _ := s.Control(svc.Stop)
-			_ = status
-			_ = s.Delete()
-			s.Close()
-		}
+	// 3. 不主动卸载 DriverLoader 服务，保持加载器常驻。
+	// 仅释放当前进程资源，避免服务卸载链路带来的系统稳定性风险。
+	if l.m != nil {
 		l.m.Disconnect()
 		l.m = nil
 	}

@@ -206,6 +206,8 @@ func (l *Loader) Close() {
 		return
 	}
 
+	fmt.Println("[Loader] Close: skip auto-unload of mapped drivers/services for stability")
+
 	// 1. 关闭设备句柄
 	syscall.Close(l.handle)
 	l.handle = syscall.InvalidHandle

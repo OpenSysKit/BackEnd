@@ -198,32 +198,20 @@ func (l *Loader) MapDriver(sysPath string) (uint64, error) {
 	return resp.DriverHandle, nil
 }
 
-// Close 释放资源，包含卸载已映射的驱动和停止加载器
+// Close 释放资源
+// 稳定性策略：退出时不触发任何卸载链路，仅关闭当前进程句柄。
+// 驱动卸载应通过显式管理命令执行，避免在进程退出阶段触发 0xCE 风险。
 func (l *Loader) Close() {
 	if l.handle == syscall.InvalidHandle {
 		return
 	}
 
-	// 1. 卸载所有映射的驱动
-	for _, handle := range l.mappedHandles {
-		req := unloadDriverRequest{DriverHandle: handle}
-		var returned uint32
-		_ = syscall.DeviceIoControl(
-			l.handle,
-			ioctlUnloadDriver,
-			(*byte)(unsafe.Pointer(&req)),
-			uint32(unsafe.Sizeof(req)),
-			nil,
-			0,
-			&returned,
-			nil,
-		)
-	}
-	l.mappedHandles = nil
-
-	// 2. 关闭设备句柄
+	// 1. 关闭设备句柄
 	syscall.Close(l.handle)
 	l.handle = syscall.InvalidHandle
+
+	// 2. 清理本进程内记录状态。
+	l.mappedHandles = nil
 
 	// 3. 不主动卸载 DriverLoader 服务，保持加载器常驻。
 	// 仅释放当前进程资源，避免服务卸载链路带来的系统稳定性风险。

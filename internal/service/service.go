@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -313,6 +314,23 @@ func (t *ToolkitService) ListDirectory(args *ListDirectoryArgs, reply *ListDirec
 	return nil
 }
 
+func normalizeKernelPath(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+
+	if strings.HasPrefix(p, `\\??\\`) || strings.HasPrefix(p, `\\Device\\`) {
+		return p
+	}
+
+	if len(p) >= 2 && p[1] == ':' {
+		return `\\??\\` + p
+	}
+
+	return p
+}
+
 // DeleteFileKernelArgs 内核删除文件请求参数
 type DeleteFileKernelArgs struct {
 	Path string `json:"path"`
@@ -333,7 +351,8 @@ func (t *ToolkitService) DeleteFileKernel(args *DeleteFileKernelArgs, reply *Del
 		return fmt.Errorf("path 不能为空")
 	}
 
-	utf16Path, err := syscall.UTF16FromString(args.Path)
+	kernelPath := normalizeKernelPath(args.Path)
+	utf16Path, err := syscall.UTF16FromString(kernelPath)
 	if err != nil {
 		return fmt.Errorf("路径编码失败: %w", err)
 	}

@@ -574,6 +574,83 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.22 `Toolkit.GetAuditLogs`
+
+作用：获取后端写操作审计日志（倒序返回，最新在前）。  
+参数：
+
+- `limit`：返回条数（<=0 时默认 100）
+
+请求：
+
+```json
+{
+  "id": 22,
+  "method": "Toolkit.GetAuditLogs",
+  "params": [
+    {
+      "limit": 100
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "total": 2,
+  "entries": [
+    {
+      "id": 9,
+      "timestamp": "2026-03-02T15:30:00+08:00",
+      "action": "kill_process",
+      "params": { "process_id": 5388 },
+      "success": true
+    }
+  ]
+}
+```
+
+---
+
+### 3.23 `Toolkit.ExportReport`
+
+作用：导出测试报告（健康检查 + 进程数量 + 服务数量 + 连接数量，可选包含审计）。  
+参数：
+
+- `path`：输出文件路径（可空，空时自动输出到 `OpenSysKit.exe` 同级 `reports/`）
+- `include_audit`：是否包含审计数据
+- `audit_limit`：审计条数上限（`include_audit=true` 时生效）
+
+请求：
+
+```json
+{
+  "id": 23,
+  "method": "Toolkit.ExportReport",
+  "params": [
+    {
+      "path": "",
+      "include_audit": true,
+      "audit_limit": 200
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "success": true,
+  "path": "E:\\OpenSysKit\\BackEnd\\bin\\reports\\20260302-153000.json",
+  "size": 5821
+}
+```
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

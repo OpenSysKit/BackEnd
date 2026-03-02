@@ -116,7 +116,9 @@ type KillProcessReply struct {
 // KillProcess 结束指定进程
 func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessReply) error {
 	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("kill_process", map[string]any{"process_id": args.ProcessId}, err)
+		return err
 	}
 
 	req := driver.ProcessRequest{ProcessId: args.ProcessId}
@@ -129,10 +131,13 @@ func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessRe
 	_, err = t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("结束进程失败: %w", err)
+		retErr := fmt.Errorf("结束进程失败: %w", err)
+		auditWrite("kill_process", map[string]any{"process_id": args.ProcessId}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
+	auditWrite("kill_process", map[string]any{"process_id": args.ProcessId}, nil)
 	return nil
 }
 
@@ -149,7 +154,9 @@ type ProtectProcessReply struct {
 // ProtectProcess 保护指定进程
 func (t *ToolkitService) ProtectProcess(args *ProtectProcessArgs, reply *ProtectProcessReply) error {
 	if t.WinDriveDriver == nil {
-		return fmt.Errorf("WinDrive 未加载")
+		err := fmt.Errorf("WinDrive 未加载")
+		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, err)
+		return err
 	}
 
 	req := driver.ProcessRequest{ProcessId: args.ProcessId}
@@ -162,10 +169,13 @@ func (t *ToolkitService) ProtectProcess(args *ProtectProcessArgs, reply *Protect
 	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_PROTECT_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("保护进程失败: %w", err)
+		retErr := fmt.Errorf("保护进程失败: %w", err)
+		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
+	auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, nil)
 	return nil
 }
 
@@ -182,7 +192,9 @@ type UnprotectProcessReply struct {
 // UnprotectProcess 取消保护指定进程
 func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *UnprotectProcessReply) error {
 	if t.WinDriveDriver == nil {
-		return fmt.Errorf("WinDrive 未加载")
+		err := fmt.Errorf("WinDrive 未加载")
+		auditWrite("unprotect_process", map[string]any{"process_id": args.ProcessId}, err)
+		return err
 	}
 
 	req := driver.ProcessRequest{ProcessId: args.ProcessId}
@@ -195,10 +207,13 @@ func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *Unp
 	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_UNPROTECT_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("取消保护进程失败: %w", err)
+		retErr := fmt.Errorf("取消保护进程失败: %w", err)
+		auditWrite("unprotect_process", map[string]any{"process_id": args.ProcessId}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
+	auditWrite("unprotect_process", map[string]any{"process_id": args.ProcessId}, nil)
 	return nil
 }
 
@@ -216,7 +231,9 @@ type SetProtectPolicyReply struct {
 // SetProtectPolicy 下发 WinDrive 保护策略
 func (t *ToolkitService) SetProtectPolicy(args *SetProtectPolicyArgs, reply *SetProtectPolicyReply) error {
 	if t.WinDriveDriver == nil {
-		return fmt.Errorf("WinDrive 未加载")
+		err := fmt.Errorf("WinDrive 未加载")
+		auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, err)
+		return err
 	}
 
 	req := driver.ProtectPolicyRequest{
@@ -232,10 +249,13 @@ func (t *ToolkitService) SetProtectPolicy(args *SetProtectPolicyArgs, reply *Set
 	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_SET_PROTECT_POLICY, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("设置保护策略失败: %w", err)
+		retErr := fmt.Errorf("设置保护策略失败: %w", err)
+		auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
+	auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, nil)
 	return nil
 }
 
@@ -344,11 +364,15 @@ type DeleteFileKernelReply struct {
 // DeleteFileKernel 使用 OpenSysKit 内核 IOCTL 删除文件
 func (t *ToolkitService) DeleteFileKernel(args *DeleteFileKernelArgs, reply *DeleteFileKernelReply) error {
 	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("delete_file_kernel", map[string]any{"path": args.Path}, err)
+		return err
 	}
 
 	if args.Path == "" {
-		return fmt.Errorf("path 不能为空")
+		err := fmt.Errorf("path 不能为空")
+		auditWrite("delete_file_kernel", map[string]any{"path": args.Path}, err)
+		return err
 	}
 
 	kernelPath := normalizeKernelPath(args.Path)
@@ -370,10 +394,13 @@ func (t *ToolkitService) DeleteFileKernel(args *DeleteFileKernelArgs, reply *Del
 
 	if _, err := t.Driver.IoControl(driver.IOCTL_DELETE_FILE, inBuf.Bytes(), 0); err != nil {
 		reply.Success = false
-		return fmt.Errorf("内核删除文件失败: %w", err)
+		retErr := fmt.Errorf("内核删除文件失败: %w", err)
+		auditWrite("delete_file_kernel", map[string]any{"path": args.Path}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
+	auditWrite("delete_file_kernel", map[string]any{"path": args.Path}, nil)
 	return nil
 }
 
@@ -398,15 +425,21 @@ type KillFileLockingProcessesReply struct {
 // KillFileLockingProcesses 先找占用文件 PID，再通过内核 IOCTL 结束进程
 func (t *ToolkitService) KillFileLockingProcesses(args *KillFileLockingProcessesArgs, reply *KillFileLockingProcessesReply) error {
 	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("kill_file_lockers", map[string]any{"path": args.Path}, err)
+		return err
 	}
 	if args.Path == "" {
-		return fmt.Errorf("path 不能为空")
+		err := fmt.Errorf("path 不能为空")
+		auditWrite("kill_file_lockers", map[string]any{"path": args.Path}, err)
+		return err
 	}
 
 	pids, err := findLockingProcessIDs(args.Path)
 	if err != nil {
-		return fmt.Errorf("查询占用进程失败: %w", err)
+		retErr := fmt.Errorf("查询占用进程失败: %w", err)
+		auditWrite("kill_file_lockers", map[string]any{"path": args.Path}, retErr)
+		return retErr
 	}
 
 	reply.FoundPids = pids
@@ -432,6 +465,11 @@ func (t *ToolkitService) KillFileLockingProcesses(args *KillFileLockingProcesses
 		reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: true})
 	}
 
+	auditWrite("kill_file_lockers", map[string]any{
+		"path":       args.Path,
+		"found_pids": len(reply.FoundPids),
+		"results":    len(reply.Results),
+	}, nil)
 	return nil
 }
 

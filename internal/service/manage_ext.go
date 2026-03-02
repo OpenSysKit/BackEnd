@@ -60,14 +60,19 @@ type KillProcessTreeReply struct {
 // KillProcessTree 按子树顺序结束进程（默认叶子优先）。
 func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillProcessTreeReply) error {
 	if t.Driver == nil {
-		return fmt.Errorf("驱动未加载")
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId}, err)
+		return err
 	}
 	if args.ProcessId == 0 {
-		return fmt.Errorf("process_id must be > 0")
+		err := fmt.Errorf("process_id must be > 0")
+		auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId}, err)
+		return err
 	}
 
 	processes, err := t.getProcessList()
 	if err != nil {
+		auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId}, err)
 		return err
 	}
 
@@ -83,7 +88,9 @@ func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillP
 			kr := KillResult{ProcessId: pid, Success: false, Error: err.Error()}
 			reply.Results = append(reply.Results, kr)
 			if args.StrictErrors {
-				return fmt.Errorf("构造请求失败(pid=%d): %w", pid, err)
+				retErr := fmt.Errorf("构造请求失败(pid=%d): %w", pid, err)
+				auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId, "failed_pid": pid}, retErr)
+				return retErr
 			}
 			continue
 		}
@@ -92,7 +99,9 @@ func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillP
 			kr := KillResult{ProcessId: pid, Success: false, Error: err.Error()}
 			reply.Results = append(reply.Results, kr)
 			if args.StrictErrors {
-				return fmt.Errorf("结束子树进程失败(pid=%d): %w", pid, err)
+				retErr := fmt.Errorf("结束子树进程失败(pid=%d): %w", pid, err)
+				auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId, "failed_pid": pid}, retErr)
+				return retErr
 			}
 			continue
 		}
@@ -100,6 +109,10 @@ func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillP
 		reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: true})
 	}
 
+	auditWrite("kill_process_tree", map[string]any{
+		"process_id":   args.ProcessId,
+		"killed_count": len(reply.Results),
+	}, nil)
 	return nil
 }
 
@@ -150,30 +163,40 @@ type ThreadActionReply struct {
 // SuspendThread 挂起线程
 func (t *ToolkitService) SuspendThread(args *ThreadActionArgs, reply *ThreadActionReply) error {
 	if args.ThreadId == 0 {
-		return fmt.Errorf("thread_id must be > 0")
+		err := fmt.Errorf("thread_id must be > 0")
+		auditWrite("suspend_thread", map[string]any{"thread_id": args.ThreadId}, err)
+		return err
 	}
 	count, err := suspendThread(args.ThreadId)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("挂起线程失败: %w", err)
+		retErr := fmt.Errorf("挂起线程失败: %w", err)
+		auditWrite("suspend_thread", map[string]any{"thread_id": args.ThreadId}, retErr)
+		return retErr
 	}
 	reply.Success = true
 	reply.SuspendCount = count
+	auditWrite("suspend_thread", map[string]any{"thread_id": args.ThreadId, "suspend_count": count}, nil)
 	return nil
 }
 
 // ResumeThread 恢复线程
 func (t *ToolkitService) ResumeThread(args *ThreadActionArgs, reply *ThreadActionReply) error {
 	if args.ThreadId == 0 {
-		return fmt.Errorf("thread_id must be > 0")
+		err := fmt.Errorf("thread_id must be > 0")
+		auditWrite("resume_thread", map[string]any{"thread_id": args.ThreadId}, err)
+		return err
 	}
 	count, err := resumeThread(args.ThreadId)
 	if err != nil {
 		reply.Success = false
-		return fmt.Errorf("恢复线程失败: %w", err)
+		retErr := fmt.Errorf("恢复线程失败: %w", err)
+		auditWrite("resume_thread", map[string]any{"thread_id": args.ThreadId}, retErr)
+		return retErr
 	}
 	reply.Success = true
 	reply.SuspendCount = count
+	auditWrite("resume_thread", map[string]any{"thread_id": args.ThreadId, "suspend_count": count}, nil)
 	return nil
 }
 
@@ -218,26 +241,36 @@ type ServiceActionReply struct {
 // StartService 启动服务
 func (t *ToolkitService) StartService(args *ServiceActionArgs, reply *ServiceActionReply) error {
 	if strings.TrimSpace(args.Name) == "" {
-		return fmt.Errorf("name 不能为空")
+		err := fmt.Errorf("name 不能为空")
+		auditWrite("start_service", map[string]any{"name": args.Name}, err)
+		return err
 	}
 	if err := startWindowsService(args.Name); err != nil {
 		reply.Success = false
-		return fmt.Errorf("启动服务失败: %w", err)
+		retErr := fmt.Errorf("启动服务失败: %w", err)
+		auditWrite("start_service", map[string]any{"name": args.Name}, retErr)
+		return retErr
 	}
 	reply.Success = true
+	auditWrite("start_service", map[string]any{"name": args.Name}, nil)
 	return nil
 }
 
 // StopService 停止服务
 func (t *ToolkitService) StopService(args *ServiceActionArgs, reply *ServiceActionReply) error {
 	if strings.TrimSpace(args.Name) == "" {
-		return fmt.Errorf("name 不能为空")
+		err := fmt.Errorf("name 不能为空")
+		auditWrite("stop_service", map[string]any{"name": args.Name}, err)
+		return err
 	}
 	if err := stopWindowsService(args.Name); err != nil {
 		reply.Success = false
-		return fmt.Errorf("停止服务失败: %w", err)
+		retErr := fmt.Errorf("停止服务失败: %w", err)
+		auditWrite("stop_service", map[string]any{"name": args.Name}, retErr)
+		return retErr
 	}
 	reply.Success = true
+	auditWrite("stop_service", map[string]any{"name": args.Name}, nil)
 	return nil
 }
 
@@ -255,13 +288,18 @@ type SetServiceStartTypeReply struct {
 // SetServiceStartType 修改服务启动类型（auto/manual/disabled）
 func (t *ToolkitService) SetServiceStartType(args *SetServiceStartTypeArgs, reply *SetServiceStartTypeReply) error {
 	if strings.TrimSpace(args.Name) == "" {
-		return fmt.Errorf("name 不能为空")
+		err := fmt.Errorf("name 不能为空")
+		auditWrite("set_service_start_type", map[string]any{"name": args.Name, "start_type": args.StartType}, err)
+		return err
 	}
 	if err := setWindowsServiceStartType(args.Name, args.StartType); err != nil {
 		reply.Success = false
-		return fmt.Errorf("修改服务启动类型失败: %w", err)
+		retErr := fmt.Errorf("修改服务启动类型失败: %w", err)
+		auditWrite("set_service_start_type", map[string]any{"name": args.Name, "start_type": args.StartType}, retErr)
+		return retErr
 	}
 	reply.Success = true
+	auditWrite("set_service_start_type", map[string]any{"name": args.Name, "start_type": args.StartType}, nil)
 	return nil
 }
 
@@ -281,7 +319,9 @@ type ApplyProtectTemplateReply struct {
 // ApplyProtectTemplate 按模板下发 WinDrive 进程保护策略
 func (t *ToolkitService) ApplyProtectTemplate(args *ApplyProtectTemplateArgs, reply *ApplyProtectTemplateReply) error {
 	if t.WinDriveDriver == nil {
-		return fmt.Errorf("WinDrive 未加载")
+		err := fmt.Errorf("WinDrive 未加载")
+		auditWrite("apply_protect_template", map[string]any{"template": args.Template}, err)
+		return err
 	}
 
 	template := strings.ToLower(strings.TrimSpace(args.Template))
@@ -298,7 +338,9 @@ func (t *ToolkitService) ApplyProtectTemplate(args *ApplyProtectTemplateArgs, re
 	case "high":
 		mask = 0x00000A21 // TERMINATE + VM_WRITE + SET_INFORMATION + SUSPEND_RESUME
 	default:
-		return fmt.Errorf("template 仅支持 low/medium/high")
+		err := fmt.Errorf("template 仅支持 low/medium/high")
+		auditWrite("apply_protect_template", map[string]any{"template": args.Template}, err)
+		return err
 	}
 
 	req := driver.ProtectPolicyRequest{
@@ -312,13 +354,16 @@ func (t *ToolkitService) ApplyProtectTemplate(args *ApplyProtectTemplateArgs, re
 
 	if _, err := t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_SET_PROTECT_POLICY, inBuf.Bytes(), 0); err != nil {
 		reply.Success = false
-		return fmt.Errorf("设置保护策略失败: %w", err)
+		retErr := fmt.Errorf("设置保护策略失败: %w", err)
+		auditWrite("apply_protect_template", map[string]any{"template": template, "deny_access_mask": mask}, retErr)
+		return retErr
 	}
 
 	reply.Success = true
 	reply.Template = template
 	reply.Version = 1
 	reply.DenyAccessMask = mask
+	auditWrite("apply_protect_template", map[string]any{"template": template, "deny_access_mask": mask}, nil)
 	return nil
 }
 

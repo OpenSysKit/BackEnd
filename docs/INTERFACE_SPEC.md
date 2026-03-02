@@ -651,6 +651,59 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.24 `Toolkit.ListStartupEntries`
+
+作用：枚举自启动项入口视图（服务 + 计划任务，不含注册表）。  
+参数：
+
+- `category`：`all | services | tasks`
+- `name_like`：可选名称过滤
+
+请求：
+
+```json
+{
+  "id": 24,
+  "method": "Toolkit.ListStartupEntries",
+  "params": [
+    {
+      "category": "all",
+      "name_like": ""
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "category": "all",
+  "entries": [
+    {
+      "source": "service",
+      "name": "WinDefend",
+      "display_name": "Microsoft Defender Antivirus Service",
+      "state": "running",
+      "run_as": "LocalSystem",
+      "command": "\"C:\\\\Program Files\\\\Windows Defender\\\\MsMpEng.exe\"",
+      "trigger": "auto_start",
+      "detail": ""
+    },
+    {
+      "source": "task",
+      "name": "\\\\Microsoft\\\\Windows\\\\Windows Defender\\\\Windows Defender Scheduled Scan",
+      "state": "ready",
+      "run_as": "SYSTEM",
+      "trigger": "MSFT_TaskBootTrigger;MSFT_TaskLogonTrigger",
+      "detail": ""
+    }
+  ]
+}
+```
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

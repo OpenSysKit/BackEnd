@@ -228,6 +228,50 @@ func (t *ToolkitService) ListServices(args *ListServicesArgs, reply *ListService
 	return nil
 }
 
+// ListStartupEntriesArgs 自启动项枚举请求参数
+type ListStartupEntriesArgs struct {
+	Category string `json:"category"`  // all/services/tasks
+	NameLike string `json:"name_like"` // 可选过滤
+}
+
+// StartupEntryModel 自启动项模型
+type StartupEntryModel struct {
+	Source      string `json:"source"` // service/task
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	State       string `json:"state,omitempty"`
+	RunAs       string `json:"run_as,omitempty"`
+	Command     string `json:"command,omitempty"`
+	Trigger     string `json:"trigger,omitempty"`
+	Detail      string `json:"detail,omitempty"`
+}
+
+// ListStartupEntriesReply 自启动项枚举响应
+type ListStartupEntriesReply struct {
+	Category string              `json:"category"`
+	Entries  []StartupEntryModel `json:"entries"`
+}
+
+// ListStartupEntries 枚举自启动项（服务 + 计划任务）
+func (t *ToolkitService) ListStartupEntries(args *ListStartupEntriesArgs, reply *ListStartupEntriesReply) error {
+	category := strings.ToLower(strings.TrimSpace(args.Category))
+	if category == "" {
+		category = "all"
+	}
+	if category != "all" && category != "services" && category != "tasks" {
+		return fmt.Errorf("category 仅支持 all/services/tasks")
+	}
+
+	entries, err := listStartupEntries(category, strings.TrimSpace(args.NameLike))
+	if err != nil {
+		return fmt.Errorf("枚举自启动项失败: %w", err)
+	}
+
+	reply.Category = category
+	reply.Entries = entries
+	return nil
+}
+
 // ServiceActionArgs 服务动作请求参数
 type ServiceActionArgs struct {
 	Name string `json:"name"`

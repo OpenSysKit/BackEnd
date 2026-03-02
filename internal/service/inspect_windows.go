@@ -24,6 +24,7 @@ var (
 	modIphlpapi                           = windows.NewLazySystemDLL("iphlpapi.dll")
 	procGetExtendedTcpTable               = modIphlpapi.NewProc("GetExtendedTcpTable")
 	procGetExtendedUdpTable               = modIphlpapi.NewProc("GetExtendedUdpTable")
+	procSetTcpEntry                       = modIphlpapi.NewProc("SetTcpEntry")
 	errNoMoreFiles          syscall.Errno = syscall.ERROR_NO_MORE_FILES
 )
 
@@ -303,4 +304,55 @@ func tcpStateToString(state uint32) string {
 	default:
 		return "unknown"
 	}
+}
+
+type tcpDisconnectResult struct {
+	ProcessId uint32
+	Success   bool
+	Error     string
+}
+
+type mibTCPRow struct {
+	State      uint32
+	LocalAddr  uint32
+	LocalPort  uint32
+	RemoteAddr uint32
+	RemotePort uint32
+}
+
+func disconnectTCPByLocalPort(port uint16, allowedPID map[uint32]struct{}) ([]tcpDisconnectResult, error) {
+	rows, err := queryTCPv4()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]tcpDisconnectResult, 0, 16)
+	for _, r := range rows {
+		if ntohs(r.localPort) != port {
+			continue
+		}
+		if len(allowedPID) > 0 {
+			if _, ok := allowedPID[r.pid]; !ok {
+				continue
+			}
+		}
+
+		mib := mibTCPRow{
+			State:      12, // MIB_TCP_STATE_DELETE_TCB
+			LocalAddr:  r.localAddr,
+			LocalPort:  r.localPort,
+			RemoteAddr: r.remoteAddr,
+			RemotePort: r.remotePort,
+		}
+		res := tcpDisconnectResult{ProcessId: r.pid}
+		r1, _, _ := procSetTcpEntry.Call(uintptr(unsafe.Pointer(&mib)))
+		if r1 != 0 {
+			res.Success = false
+			res.Error = syscall.Errno(r1).Error()
+		} else {
+			res.Success = true
+		}
+		out = append(out, res)
+	}
+	return out, nil
 }

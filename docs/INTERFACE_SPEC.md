@@ -745,6 +745,67 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.26 `Toolkit.WatchHandleStats`
+
+作用：按固定间隔连续采样句柄趋势（默认 6 次，每次间隔 5000ms）。  
+参数：
+
+- `process_id`：目标 PID
+- `sample_count`：采样次数（1~60）
+- `interval_ms`：采样间隔毫秒（500~10000）
+- `top_n`：每次返回前 N 个句柄类型（1~20）
+
+请求：
+
+```json
+{
+  "id": 26,
+  "method": "Toolkit.WatchHandleStats",
+  "params": [
+    {
+      "process_id": 5388,
+      "sample_count": 6,
+      "interval_ms": 5000,
+      "top_n": 5
+    }
+  ]
+}
+```
+
+---
+
+### 3.27 `Toolkit.ResolvePortConflict`
+
+作用：按端口执行急救处置。  
+参数：
+
+- `port`：本地端口（1~65535）
+- `protocol`：`all | tcp | udp`
+- `action`：`kill | disconnect`
+
+说明：
+
+- `kill`：结束占用该端口的进程（高风险系统进程会被拒绝）
+- `disconnect`：仅支持 TCP，尝试断开该端口相关连接
+
+请求：
+
+```json
+{
+  "id": 27,
+  "method": "Toolkit.ResolvePortConflict",
+  "params": [
+    {
+      "port": 8080,
+      "protocol": "all",
+      "action": "kill"
+    }
+  ]
+}
+```
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

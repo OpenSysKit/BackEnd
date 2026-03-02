@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/OpenSysKit/backend/internal/driver"
 )
@@ -181,6 +182,272 @@ func (t *ToolkitService) EnumHandles(args *EnumHandlesArgs, reply *EnumHandlesRe
 	reply.TotalHandles = total
 	reply.Types = stats
 	return nil
+}
+
+// WatchHandleStatsArgs 句柄趋势采样请求参数
+type WatchHandleStatsArgs struct {
+	ProcessId   uint32 `json:"process_id"`
+	SampleCount int    `json:"sample_count"`
+	IntervalMs  int    `json:"interval_ms"`
+	TopN        int    `json:"top_n"`
+}
+
+// HandleSampleModel 单次句柄采样结果
+type HandleSampleModel struct {
+	Timestamp    string           `json:"timestamp"`
+	TotalHandles uint32           `json:"total_handles"`
+	TopTypes     []HandleTypeStat `json:"top_types"`
+}
+
+// WatchHandleStatsReply 句柄趋势采样响应
+type WatchHandleStatsReply struct {
+	ProcessId uint32              `json:"process_id"`
+	Samples   []HandleSampleModel `json:"samples"`
+}
+
+// WatchHandleStats 按固定间隔采样句柄分布趋势
+func (t *ToolkitService) WatchHandleStats(args *WatchHandleStatsArgs, reply *WatchHandleStatsReply) error {
+	if args.ProcessId == 0 {
+		return fmt.Errorf("process_id must be > 0")
+	}
+
+	sampleCount := args.SampleCount
+	if sampleCount <= 0 {
+		sampleCount = 6
+	}
+	if sampleCount > 60 {
+		sampleCount = 60
+	}
+
+	intervalMs := args.IntervalMs
+	if intervalMs <= 0 {
+		intervalMs = 5000
+	}
+	if intervalMs < 500 {
+		intervalMs = 500
+	}
+	if intervalMs > 10000 {
+		intervalMs = 10000
+	}
+
+	topN := args.TopN
+	if topN <= 0 {
+		topN = 5
+	}
+	if topN > 20 {
+		topN = 20
+	}
+
+	reply.ProcessId = args.ProcessId
+	reply.Samples = make([]HandleSampleModel, 0, sampleCount)
+	for i := 0; i < sampleCount; i++ {
+		total, stats, err := enumHandleStatsByPID(args.ProcessId)
+		if err != nil {
+			return fmt.Errorf("句柄采样失败(第 %d 次): %w", i+1, err)
+		}
+		if len(stats) > topN {
+			stats = stats[:topN]
+		}
+		reply.Samples = append(reply.Samples, HandleSampleModel{
+			Timestamp:    time.Now().Format(time.RFC3339),
+			TotalHandles: total,
+			TopTypes:     stats,
+		})
+		if i+1 < sampleCount {
+			time.Sleep(time.Duration(intervalMs) * time.Millisecond)
+		}
+	}
+	return nil
+}
+
+// ResolvePortConflictArgs 端口冲突处置请求参数
+type ResolvePortConflictArgs struct {
+	Port     uint16 `json:"port"`
+	Protocol string `json:"protocol"` // all/tcp/udp
+	Action   string `json:"action"`   // kill/disconnect
+}
+
+// PortConflictConnection 命中的端口连接
+type PortConflictConnection struct {
+	Protocol    string `json:"protocol"`
+	LocalIP     string `json:"local_ip"`
+	LocalPort   uint16 `json:"local_port"`
+	RemoteIP    string `json:"remote_ip"`
+	RemotePort  uint16 `json:"remote_port"`
+	State       string `json:"state"`
+	ProcessId   uint32 `json:"process_id"`
+	ProcessName string `json:"process_name"`
+}
+
+// PortConflictActionResult 单个端口处置结果
+type PortConflictActionResult struct {
+	ProcessId uint32 `json:"process_id"`
+	Method    string `json:"method"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ResolvePortConflictReply 端口冲突处置响应
+type ResolvePortConflictReply struct {
+	Port     uint16                     `json:"port"`
+	Protocol string                     `json:"protocol"`
+	Action   string                     `json:"action"`
+	Summary  string                     `json:"summary"`
+	Matches  []PortConflictConnection   `json:"matches"`
+	Results  []PortConflictActionResult `json:"results"`
+}
+
+// ResolvePortConflict 按端口执行“断连”或“结束占用进程”
+func (t *ToolkitService) ResolvePortConflict(args *ResolvePortConflictArgs, reply *ResolvePortConflictReply) error {
+	if args.Port == 0 {
+		err := fmt.Errorf("port must be > 0")
+		auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "action": args.Action}, err)
+		return err
+	}
+
+	protocol := strings.ToLower(strings.TrimSpace(args.Protocol))
+	if protocol == "" {
+		protocol = "all"
+	}
+	if protocol != "all" && protocol != "tcp" && protocol != "udp" {
+		err := fmt.Errorf("protocol 仅支持 all/tcp/udp")
+		auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": args.Action}, err)
+		return err
+	}
+
+	action := strings.ToLower(strings.TrimSpace(args.Action))
+	if action != "kill" && action != "disconnect" {
+		err := fmt.Errorf("action 仅支持 kill/disconnect")
+		auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action}, err)
+		return err
+	}
+
+	conns, err := enumNetworkConnections(protocol)
+	if err != nil {
+		retErr := fmt.Errorf("枚举网络连接失败: %w", err)
+		auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action}, retErr)
+		return retErr
+	}
+
+	matches := make([]PortConflictConnection, 0, 16)
+	pids := make(map[uint32]string, 16)
+	tcpPids := make(map[uint32]struct{}, 16)
+	for _, c := range conns {
+		if c.LocalPort != args.Port {
+			continue
+		}
+		matches = append(matches, PortConflictConnection{
+			Protocol:    c.Protocol,
+			LocalIP:     c.LocalIP,
+			LocalPort:   c.LocalPort,
+			RemoteIP:    c.RemoteIP,
+			RemotePort:  c.RemotePort,
+			State:       c.State,
+			ProcessId:   c.ProcessId,
+			ProcessName: c.ProcessName,
+		})
+		if c.ProcessId > 0 {
+			pids[c.ProcessId] = c.ProcessName
+			if c.Protocol == "tcp" {
+				tcpPids[c.ProcessId] = struct{}{}
+			}
+		}
+	}
+
+	reply.Port = args.Port
+	reply.Protocol = protocol
+	reply.Action = action
+	reply.Matches = matches
+	reply.Results = make([]PortConflictActionResult, 0, len(pids))
+
+	if len(matches) == 0 {
+		reply.Summary = "未发现占用该端口的连接"
+		auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action, "matches": 0}, nil)
+		return nil
+	}
+
+	switch action {
+	case "kill":
+		if t.Driver == nil {
+			retErr := fmt.Errorf("驱动未加载，无法执行 kill")
+			auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action, "matches": len(matches)}, retErr)
+			return retErr
+		}
+
+		for pid, name := range pids {
+			res := PortConflictActionResult{ProcessId: pid, Method: "kill_process"}
+			if pid <= 4 || isHighRiskProcessName(name) {
+				res.Success = false
+				res.Error = "高风险系统进程，拒绝结束"
+				reply.Results = append(reply.Results, res)
+				continue
+			}
+
+			req := driver.ProcessRequest{ProcessId: pid}
+			inBuf := new(bytes.Buffer)
+			if err = binary.Write(inBuf, binary.LittleEndian, req); err != nil {
+				res.Success = false
+				res.Error = err.Error()
+				reply.Results = append(reply.Results, res)
+				continue
+			}
+			if _, err = t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0); err != nil {
+				res.Success = false
+				res.Error = err.Error()
+				reply.Results = append(reply.Results, res)
+				continue
+			}
+			res.Success = true
+			reply.Results = append(reply.Results, res)
+		}
+	case "disconnect":
+		if protocol == "udp" {
+			retErr := fmt.Errorf("disconnect 暂仅支持 TCP")
+			auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action, "matches": len(matches)}, retErr)
+			return retErr
+		}
+
+		rows, disErr := disconnectTCPByLocalPort(args.Port, tcpPids)
+		if disErr != nil {
+			retErr := fmt.Errorf("断开 TCP 连接失败: %w", disErr)
+			auditWrite("resolve_port_conflict", map[string]any{"port": args.Port, "protocol": protocol, "action": action, "matches": len(matches)}, retErr)
+			return retErr
+		}
+		for _, r := range rows {
+			reply.Results = append(reply.Results, PortConflictActionResult{
+				ProcessId: r.ProcessId,
+				Method:    "disconnect_tcp",
+				Success:   r.Success,
+				Error:     r.Error,
+			})
+		}
+	}
+
+	okCount := 0
+	for _, r := range reply.Results {
+		if r.Success {
+			okCount++
+		}
+	}
+	reply.Summary = fmt.Sprintf("匹配连接 %d 条，成功处置 %d 项", len(reply.Matches), okCount)
+	auditWrite("resolve_port_conflict", map[string]any{
+		"port":     args.Port,
+		"protocol": protocol,
+		"action":   action,
+		"matches":  len(reply.Matches),
+		"results":  len(reply.Results),
+	}, nil)
+	return nil
+}
+
+func isHighRiskProcessName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch n {
+	case "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe", "svchost.exe":
+		return true
+	default:
+		return false
+	}
 }
 
 // ThreadActionArgs 线程动作请求参数

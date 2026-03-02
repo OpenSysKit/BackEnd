@@ -23,6 +23,14 @@ var (
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
+	if shouldEnterUninstallMode() {
+		if err := runUninstallMode(); err != nil {
+			log.Fatalf("卸载失败: %v", err)
+		}
+		return
+	}
+
 	log.Printf("OpenSysKit 后端服务正在启动... (版本: %s, 构建时间: %s)", version, buildTime)
 
 	// 打开内核驱动设备
@@ -105,4 +113,12 @@ func main() {
 	<-sig
 
 	log.Println("正在关闭服务...")
+}
+
+func shouldEnterUninstallMode() bool {
+	if len(os.Args) < 2 {
+		return false
+	}
+	arg := os.Args[1]
+	return arg == "uninstall" || arg == "--uninstall"
 }

@@ -1,12 +1,14 @@
 package driver
 
 import (
+	"errors"
 	"fmt"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
@@ -19,8 +21,10 @@ const (
 	ioctlLoadDriver   = 0x80002000 // CTL_CODE(0x8000, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 	ioctlUnloadDriver = 0x80002004 // CTL_CODE(0x8000, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 	ioctlAllowUnload  = 0x8000200C // CTL_CODE(0x8000, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+	ioctlListDrivers  = 0x80002018 // CTL_CODE(0x8000, 0x806, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 	maxDriverPath = 520
+	maxListCount  = 16
 )
 
 // loaderRequest 请求结构
@@ -37,6 +41,32 @@ type loadDriverResponse struct {
 
 type unloadDriverRequest struct {
 	DriverHandle uint64
+}
+
+type loadedDriverEntryRaw struct {
+	Handle          uint64
+	DriverBase      uint64
+	ImageSize       uint64
+	DriverObject    uint64
+	HasDeviceObject uint8
+	HasUnload       uint8
+	Reserved        [6]uint8
+}
+
+type listDriversResponse struct {
+	Count    uint32
+	Reserved uint32
+	Drivers  [maxListCount]loadedDriverEntryRaw
+}
+
+// LoadedDriverInfo WinDrive 映射驱动条目
+type LoadedDriverInfo struct {
+	Handle          uint64
+	DriverBase      uint64
+	ImageSize       uint64
+	DriverObject    uint64
+	HasDeviceObject bool
+	HasUnload       bool
 }
 
 // Loader 管理 WinDrive 加载器
@@ -84,6 +114,15 @@ func NewLoader(loaderSysPath string) (*Loader, error) {
 		return nil, fmt.Errorf("服务启动后仍无法打开设备(重试后): %w", openErr)
 	}
 
+	return l, nil
+}
+
+// OpenExistingLoader 仅连接当前运行中的 DriverLoader，不执行安装/启动逻辑。
+func OpenExistingLoader() (*Loader, error) {
+	l := &Loader{handle: syscall.InvalidHandle}
+	if err := l.open(); err != nil {
+		return nil, err
+	}
 	return l, nil
 }
 
@@ -196,6 +235,139 @@ func (l *Loader) MapDriver(sysPath string) (uint64, error) {
 
 	l.mappedHandles = append(l.mappedHandles, resp.DriverHandle)
 	return resp.DriverHandle, nil
+}
+
+// UnloadMappedDriver 卸载指定映射句柄。
+func (l *Loader) UnloadMappedDriver(handle uint64) error {
+	if l.handle == syscall.InvalidHandle {
+		return fmt.Errorf("loader 设备未连接")
+	}
+
+	req := unloadDriverRequest{DriverHandle: handle}
+	var bytesReturned uint32
+	err := syscall.DeviceIoControl(
+		l.handle,
+		ioctlUnloadDriver,
+		(*byte)(unsafe.Pointer(&req)),
+		uint32(unsafe.Sizeof(req)),
+		nil,
+		0,
+		&bytesReturned,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("卸载映射驱动失败(handle=%d): %w", handle, err)
+	}
+	return nil
+}
+
+// ListMappedDrivers 查询 WinDrive 当前映射驱动列表。
+func (l *Loader) ListMappedDrivers() ([]LoadedDriverInfo, error) {
+	if l.handle == syscall.InvalidHandle {
+		return nil, fmt.Errorf("loader 设备未连接")
+	}
+
+	var resp listDriversResponse
+	var bytesReturned uint32
+	err := syscall.DeviceIoControl(
+		l.handle,
+		ioctlListDrivers,
+		nil,
+		0,
+		(*byte)(unsafe.Pointer(&resp)),
+		uint32(unsafe.Sizeof(resp)),
+		&bytesReturned,
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("查询映射驱动列表失败: %w", err)
+	}
+
+	count := int(resp.Count)
+	if count > maxListCount {
+		count = maxListCount
+	}
+	out := make([]LoadedDriverInfo, 0, count)
+	for i := 0; i < count; i++ {
+		row := resp.Drivers[i]
+		out = append(out, LoadedDriverInfo{
+			Handle:          row.Handle,
+			DriverBase:      row.DriverBase,
+			ImageSize:       row.ImageSize,
+			DriverObject:    row.DriverObject,
+			HasDeviceObject: row.HasDeviceObject != 0,
+			HasUnload:       row.HasUnload != 0,
+		})
+	}
+	return out, nil
+}
+
+// AllowUnload 向 DriverLoader 发送卸载授权。
+func (l *Loader) AllowUnload() error {
+	if l.handle == syscall.InvalidHandle {
+		return fmt.Errorf("loader 设备未连接")
+	}
+	var bytesReturned uint32
+	err := syscall.DeviceIoControl(
+		l.handle,
+		ioctlAllowUnload,
+		nil,
+		0,
+		nil,
+		0,
+		&bytesReturned,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("发送 allow-unload 失败: %w", err)
+	}
+	return nil
+}
+
+// UninstallLoaderService 停止并删除 DriverLoader 服务。
+func UninstallLoaderService() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return fmt.Errorf("连接 SCM 失败: %w", err)
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(loaderSvcName)
+	if err != nil {
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return nil
+		}
+		return fmt.Errorf("打开服务失败: %w", err)
+	}
+	defer s.Close()
+
+	st, err := s.Query()
+	if err == nil && st.State != svc.Stopped {
+		_, stopErr := s.Control(svc.Stop)
+		if stopErr != nil && !errors.Is(stopErr, windows.ERROR_SERVICE_NOT_ACTIVE) {
+			return fmt.Errorf("停止服务失败: %w", stopErr)
+		}
+
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			st, err = s.Query()
+			if err != nil {
+				return fmt.Errorf("查询服务状态失败: %w", err)
+			}
+			if st.State == svc.Stopped {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		if st.State != svc.Stopped {
+			return fmt.Errorf("服务停止超时，当前状态=%d", st.State)
+		}
+	}
+
+	if err = s.Delete(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+		return fmt.Errorf("删除服务失败: %w", err)
+	}
+	return nil
 }
 
 // Close 释放资源

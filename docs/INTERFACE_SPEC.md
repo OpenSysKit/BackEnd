@@ -704,6 +704,47 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.25 `Toolkit.EnumHandles`
+
+作用：按 PID 观测句柄总数与类型分布（只读）。  
+参数：
+
+- `process_id`：目标 PID
+
+请求：
+
+```json
+{
+  "id": 25,
+  "method": "Toolkit.EnumHandles",
+  "params": [
+    {
+      "process_id": 5388
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "process_id": 5388,
+  "total_handles": 421,
+  "types": [
+    { "type_index": 7, "type_name": "Process", "count": 96 },
+    { "type_index": 17, "type_name": "Thread", "count": 84 },
+    { "type_index": 27, "type_name": "File", "count": 63 }
+  ]
+}
+```
+
+说明：
+
+- `type_name` 基于句柄类型索引解析，若解析失败会返回 `type#<index>` 占位名。
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

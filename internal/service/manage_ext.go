@@ -149,6 +149,40 @@ func (t *ToolkitService) EnumThreads(args *EnumThreadsArgs, reply *EnumThreadsRe
 	return nil
 }
 
+// EnumHandlesArgs 句柄统计请求参数
+type EnumHandlesArgs struct {
+	ProcessId uint32 `json:"process_id"`
+}
+
+// HandleTypeStat 句柄类型统计项
+type HandleTypeStat struct {
+	TypeIndex uint16 `json:"type_index"`
+	TypeName  string `json:"type_name"`
+	Count     uint32 `json:"count"`
+}
+
+// EnumHandlesReply 句柄统计响应
+type EnumHandlesReply struct {
+	ProcessId    uint32           `json:"process_id"`
+	TotalHandles uint32           `json:"total_handles"`
+	Types        []HandleTypeStat `json:"types"`
+}
+
+// EnumHandles 按 PID 枚举句柄数量与类型分布
+func (t *ToolkitService) EnumHandles(args *EnumHandlesArgs, reply *EnumHandlesReply) error {
+	if args.ProcessId == 0 {
+		return fmt.Errorf("process_id must be > 0")
+	}
+	total, stats, err := enumHandleStatsByPID(args.ProcessId)
+	if err != nil {
+		return fmt.Errorf("枚举句柄失败: %w", err)
+	}
+	reply.ProcessId = args.ProcessId
+	reply.TotalHandles = total
+	reply.Types = stats
+	return nil
+}
+
 // ThreadActionArgs 线程动作请求参数
 type ThreadActionArgs struct {
 	ThreadId uint32 `json:"thread_id"`

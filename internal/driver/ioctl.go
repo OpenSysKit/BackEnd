@@ -22,6 +22,7 @@ var (
 	IOCTL_KILL_PROCESS     = CTL_CODE(deviceTypeOpenSysKit, 0x801, methodBuffered, fileAnyAccess)
 	IOCTL_FREEZE_PROCESS   = CTL_CODE(deviceTypeOpenSysKit, 0x802, methodBuffered, fileAnyAccess)
 	IOCTL_UNFREEZE_PROCESS = CTL_CODE(deviceTypeOpenSysKit, 0x803, methodBuffered, fileAnyAccess)
+	IOCTL_DELETE_FILE      = CTL_CODE(deviceTypeOpenSysKit, 0x804, methodBuffered, fileAnyAccess)
 
 	// WinDrive (DriverLoader) process-protect IOCTLs
 	IOCTL_WINDRIVE_PROTECT_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x807, methodBuffered, fileAnyAccess)
@@ -55,4 +56,9 @@ type ProtectPolicyRequest struct {
 	Version        uint32
 	DenyAccessMask uint32
 	Reserved       uint32
+}
+
+// FilePathRequest 对应内核中的 FILE_PATH_REQUEST。
+type FilePathRequest struct {
+	Path [520]uint16
 }

@@ -257,6 +257,107 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.7 `Toolkit.ListDirectory`
+
+作用：列出目录项（目录优先 + 名称排序）。  
+参数：`path`（字符串，目录绝对路径）。
+
+请求：
+
+```json
+{
+  "id": 7,
+  "method": "Toolkit.ListDirectory",
+  "params": [
+    {
+      "path": "C:\\"
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "current_path": "C:\\",
+  "parent_path": "",
+  "entries": [
+    {
+      "name": "Windows",
+      "path": "C:\\Windows",
+      "is_dir": true,
+      "size": 0,
+      "mod_time": "2026-03-01T10:00:00+08:00"
+    }
+  ]
+}
+```
+
+---
+
+### 3.8 `Toolkit.DeleteFileKernel`
+
+作用：通过 OpenSysKit 驱动执行内核文件删除。  
+参数：`path`（字符串，文件绝对路径）。
+
+请求：
+
+```json
+{
+  "id": 8,
+  "method": "Toolkit.DeleteFileKernel",
+  "params": [
+    {
+      "path": "C:\\Temp\\test.txt"
+    }
+  ]
+}
+```
+
+成功结果：
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+### 3.9 `Toolkit.KillFileLockingProcesses`
+
+作用：查询占用指定文件的进程，并调用内核 `KillProcess` 执行结束。  
+参数：`path`（字符串，文件绝对路径）。
+
+请求：
+
+```json
+{
+  "id": 9,
+  "method": "Toolkit.KillFileLockingProcesses",
+  "params": [
+    {
+      "path": "C:\\Temp\\test.txt"
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "found_pids": [5388, 9524],
+  "results": [
+    { "process_id": 5388, "success": true },
+    { "process_id": 9524, "success": false, "error": "..." }
+  ]
+}
+```
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

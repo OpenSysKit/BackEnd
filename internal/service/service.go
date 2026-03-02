@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"syscall"
+	"time"
 
 	"github.com/OpenSysKit/backend/internal/driver"
 )
@@ -231,5 +235,183 @@ func (t *ToolkitService) SetProtectPolicy(args *SetProtectPolicyArgs, reply *Set
 	}
 
 	reply.Success = true
+	return nil
+}
+
+// ListDirectoryArgs 文件管理-列目录请求参数
+// Path 支持绝对路径，空值时使用系统盘根目录。
+type ListDirectoryArgs struct {
+	Path string `json:"path"`
+}
+
+// FileEntryModel 单个目录项
+type FileEntryModel struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
+// ListDirectoryReply 文件管理-列目录响应
+type ListDirectoryReply struct {
+	CurrentPath string           `json:"current_path"`
+	ParentPath  string           `json:"parent_path"`
+	Entries     []FileEntryModel `json:"entries"`
+}
+
+// ListDirectory 列出目录内容（目录优先、名称排序）
+func (t *ToolkitService) ListDirectory(args *ListDirectoryArgs, reply *ListDirectoryReply) error {
+	path := filepath.Clean(args.Path)
+	if path == "." || path == "" {
+		path = `C:\\`
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("路径解析失败: %w", err)
+	}
+
+	entries, err := os.ReadDir(absPath)
+	if err != nil {
+		return fmt.Errorf("读取目录失败: %w", err)
+	}
+
+	reply.CurrentPath = absPath
+	reply.ParentPath = filepath.Dir(absPath)
+	if reply.ParentPath == absPath {
+		reply.ParentPath = ""
+	}
+
+	models := make([]FileEntryModel, 0, len(entries))
+	for _, entry := range entries {
+		fullPath := filepath.Join(absPath, entry.Name())
+		model := FileEntryModel{
+			Name:  entry.Name(),
+			Path:  fullPath,
+			IsDir: entry.IsDir(),
+		}
+
+		if info, infoErr := entry.Info(); infoErr == nil {
+			if !entry.IsDir() {
+				model.Size = info.Size()
+			}
+			model.ModTime = info.ModTime().Format(time.RFC3339)
+		}
+
+		models = append(models, model)
+	}
+
+	sort.SliceStable(models, func(i, j int) bool {
+		if models[i].IsDir != models[j].IsDir {
+			return models[i].IsDir
+		}
+		return models[i].Name < models[j].Name
+	})
+
+	reply.Entries = models
+	return nil
+}
+
+// DeleteFileKernelArgs 内核删除文件请求参数
+type DeleteFileKernelArgs struct {
+	Path string `json:"path"`
+}
+
+// DeleteFileKernelReply 内核删除文件响应
+type DeleteFileKernelReply struct {
+	Success bool `json:"success"`
+}
+
+// DeleteFileKernel 使用 OpenSysKit 内核 IOCTL 删除文件
+func (t *ToolkitService) DeleteFileKernel(args *DeleteFileKernelArgs, reply *DeleteFileKernelReply) error {
+	if t.Driver == nil {
+		return fmt.Errorf("驱动未加载")
+	}
+
+	if args.Path == "" {
+		return fmt.Errorf("path 不能为空")
+	}
+
+	utf16Path, err := syscall.UTF16FromString(args.Path)
+	if err != nil {
+		return fmt.Errorf("路径编码失败: %w", err)
+	}
+
+	var req driver.FilePathRequest
+	if len(utf16Path) > len(req.Path) {
+		return fmt.Errorf("路径过长，最大支持 %d UTF-16 字符", len(req.Path)-1)
+	}
+	copy(req.Path[:], utf16Path)
+
+	inBuf := new(bytes.Buffer)
+	if err := binary.Write(inBuf, binary.LittleEndian, req); err != nil {
+		return fmt.Errorf("构造请求失败: %w", err)
+	}
+
+	if _, err := t.Driver.IoControl(driver.IOCTL_DELETE_FILE, inBuf.Bytes(), 0); err != nil {
+		reply.Success = false
+		return fmt.Errorf("内核删除文件失败: %w", err)
+	}
+
+	reply.Success = true
+	return nil
+}
+
+// KillFileLockingProcessesArgs 结束占用文件进程请求参数
+type KillFileLockingProcessesArgs struct {
+	Path string `json:"path"`
+}
+
+// KillResult 单个 PID 的处理结果
+type KillResult struct {
+	ProcessId uint32 `json:"process_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// KillFileLockingProcessesReply 结束占用文件进程响应
+type KillFileLockingProcessesReply struct {
+	FoundPids []uint32     `json:"found_pids"`
+	Results   []KillResult `json:"results"`
+}
+
+// KillFileLockingProcesses 先找占用文件 PID，再通过内核 IOCTL 结束进程
+func (t *ToolkitService) KillFileLockingProcesses(args *KillFileLockingProcessesArgs, reply *KillFileLockingProcessesReply) error {
+	if t.Driver == nil {
+		return fmt.Errorf("驱动未加载")
+	}
+	if args.Path == "" {
+		return fmt.Errorf("path 不能为空")
+	}
+
+	pids, err := findLockingProcessIDs(args.Path)
+	if err != nil {
+		return fmt.Errorf("查询占用进程失败: %w", err)
+	}
+
+	reply.FoundPids = pids
+	reply.Results = make([]KillResult, 0, len(pids))
+
+	for _, pid := range pids {
+		if pid == 0 {
+			continue
+		}
+
+		req := driver.ProcessRequest{ProcessId: pid}
+		inBuf := new(bytes.Buffer)
+		if err := binary.Write(inBuf, binary.LittleEndian, req); err != nil {
+			reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: false, Error: err.Error()})
+			continue
+		}
+
+		if _, err := t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0); err != nil {
+			reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: false, Error: err.Error()})
+			continue
+		}
+
+		reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: true})
+	}
+
 	return nil
 }

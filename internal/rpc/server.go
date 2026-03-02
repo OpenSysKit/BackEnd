@@ -7,7 +7,6 @@ import (
 	"net/rpc/jsonrpc"
 
 	"github.com/OpenSysKit/backend/internal/driver"
-	"github.com/OpenSysKit/backend/internal/security"
 	"github.com/OpenSysKit/backend/internal/service"
 )
 
@@ -47,12 +46,7 @@ func (s *Server) Serve(ln net.Listener) error {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 
-	if err := security.ValidatePipeClient(conn); err != nil {
-		log.Printf("[rpc] 拒绝连接: %v", err)
-		return
-	}
-
-	log.Printf("[rpc] 新连接(已验证): %s", conn.RemoteAddr())
+	log.Printf("[rpc] 新连接: %s", conn.RemoteAddr())
 	s.rpcServer.ServeCodec(jsonrpc.NewServerCodec(conn))
 	log.Printf("[rpc] 连接已关闭: %s", conn.RemoteAddr())
 }

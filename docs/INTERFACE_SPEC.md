@@ -358,6 +358,118 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.10 `Toolkit.HealthCheck`
+
+作用：健康检查面板数据源，检查后端链路与关键能力。  
+参数：空对象。
+
+请求：
+
+```json
+{
+  "id": 10,
+  "method": "Toolkit.HealthCheck",
+  "params": [{}]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "overall_status": "degraded",
+  "generated_at": "2026-03-02T13:00:00+08:00",
+  "components": [
+    { "name": "backend", "status": "ok", "message": "rpc service running" },
+    { "name": "opensyskit_driver", "status": "ok", "message": "ioctl enum_processes ok" },
+    { "name": "windrive_driver", "status": "degraded", "message": "windrive not connected" }
+  ]
+}
+```
+
+---
+
+### 3.11 `Toolkit.EnumProcessModules`
+
+作用：按 PID 枚举模块（模块名/基址/大小/路径）。  
+参数：`process_id`（uint32）。
+
+请求：
+
+```json
+{
+  "id": 11,
+  "method": "Toolkit.EnumProcessModules",
+  "params": [
+    {
+      "process_id": 5388
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "process_id": 5388,
+  "modules": [
+    {
+      "process_id": 5388,
+      "module_name": "kernel32.dll",
+      "base_address": 140709826207744,
+      "size": 770048,
+      "path": "C:\\Windows\\System32\\kernel32.dll"
+    }
+  ]
+}
+```
+
+---
+
+### 3.12 `Toolkit.EnumNetworkConnections`
+
+作用：枚举 TCP/UDP 连接与 PID 关联。  
+参数：
+
+- `protocol`：`all | tcp | udp`
+
+请求：
+
+```json
+{
+  "id": 12,
+  "method": "Toolkit.EnumNetworkConnections",
+  "params": [
+    {
+      "protocol": "all"
+    }
+  ]
+}
+```
+
+成功结果示例：
+
+```json
+{
+  "protocol": "all",
+  "connections": [
+    {
+      "protocol": "tcp",
+      "local_ip": "127.0.0.1",
+      "local_port": 19090,
+      "remote_ip": "0.0.0.0",
+      "remote_port": 0,
+      "state": "listen",
+      "process_id": 1234,
+      "process_name": "TestTool.exe"
+    }
+  ]
+}
+```
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

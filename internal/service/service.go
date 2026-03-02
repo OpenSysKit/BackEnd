@@ -434,3 +434,191 @@ func (t *ToolkitService) KillFileLockingProcesses(args *KillFileLockingProcesses
 
 	return nil
 }
+
+// EnumProcessModulesArgs 进程模块枚举请求参数
+type EnumProcessModulesArgs struct {
+	ProcessId uint32 `json:"process_id"`
+}
+
+// ProcessModuleModel 进程模块信息
+type ProcessModuleModel struct {
+	ProcessId   uint32 `json:"process_id"`
+	ModuleName  string `json:"module_name"`
+	BaseAddress uint64 `json:"base_address"`
+	Size        uint32 `json:"size"`
+	Path        string `json:"path"`
+}
+
+// EnumProcessModulesReply 进程模块枚举响应
+type EnumProcessModulesReply struct {
+	ProcessId uint32               `json:"process_id"`
+	Modules   []ProcessModuleModel `json:"modules"`
+}
+
+// EnumProcessModules 枚举指定进程加载模块
+func (t *ToolkitService) EnumProcessModules(args *EnumProcessModulesArgs, reply *EnumProcessModulesReply) error {
+	if args.ProcessId == 0 {
+		return fmt.Errorf("process_id must be > 0")
+	}
+
+	modules, err := enumProcessModules(args.ProcessId)
+	if err != nil {
+		return fmt.Errorf("枚举进程模块失败: %w", err)
+	}
+
+	reply.ProcessId = args.ProcessId
+	reply.Modules = modules
+	return nil
+}
+
+// EnumNetworkConnectionsArgs 网络连接枚举请求参数
+type EnumNetworkConnectionsArgs struct {
+	Protocol string `json:"protocol"`
+}
+
+// NetworkConnectionModel 网络连接信息
+type NetworkConnectionModel struct {
+	Protocol    string `json:"protocol"`
+	LocalIP     string `json:"local_ip"`
+	LocalPort   uint16 `json:"local_port"`
+	RemoteIP    string `json:"remote_ip"`
+	RemotePort  uint16 `json:"remote_port"`
+	State       string `json:"state"`
+	ProcessId   uint32 `json:"process_id"`
+	ProcessName string `json:"process_name"`
+}
+
+// EnumNetworkConnectionsReply 网络连接枚举响应
+type EnumNetworkConnectionsReply struct {
+	Protocol    string                   `json:"protocol"`
+	Connections []NetworkConnectionModel `json:"connections"`
+}
+
+// EnumNetworkConnections 枚举 TCP/UDP 到 PID 的关联信息
+func (t *ToolkitService) EnumNetworkConnections(args *EnumNetworkConnectionsArgs, reply *EnumNetworkConnectionsReply) error {
+	protocol := strings.ToLower(strings.TrimSpace(args.Protocol))
+	if protocol == "" {
+		protocol = "all"
+	}
+	if protocol != "all" && protocol != "tcp" && protocol != "udp" {
+		return fmt.Errorf("protocol 仅支持 all/tcp/udp")
+	}
+
+	connections, err := enumNetworkConnections(protocol)
+	if err != nil {
+		return fmt.Errorf("枚举网络连接失败: %w", err)
+	}
+
+	reply.Protocol = protocol
+	reply.Connections = connections
+	return nil
+}
+
+// HealthCheckArgs 健康检查请求参数
+type HealthCheckArgs struct{}
+
+// HealthComponent 健康检查组件结果
+type HealthComponent struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// HealthCheckReply 健康检查响应
+type HealthCheckReply struct {
+	OverallStatus string            `json:"overall_status"`
+	GeneratedAt   string            `json:"generated_at"`
+	Components    []HealthComponent `json:"components"`
+}
+
+// HealthCheck 执行后端链路与能力自检
+func (t *ToolkitService) HealthCheck(_ *HealthCheckArgs, reply *HealthCheckReply) error {
+	components := make([]HealthComponent, 0, 5)
+
+	components = append(components, HealthComponent{
+		Name:    "backend",
+		Status:  "ok",
+		Message: "rpc service running",
+	})
+
+	if t.Driver == nil {
+		components = append(components, HealthComponent{
+			Name:    "opensyskit_driver",
+			Status:  "down",
+			Message: "driver not connected",
+		})
+	} else {
+		_, err := t.Driver.IoControl(driver.IOCTL_ENUM_PROCESSES, nil, 8)
+		if err != nil {
+			components = append(components, HealthComponent{
+				Name:    "opensyskit_driver",
+				Status:  "degraded",
+				Message: err.Error(),
+			})
+		} else {
+			components = append(components, HealthComponent{
+				Name:    "opensyskit_driver",
+				Status:  "ok",
+				Message: "ioctl enum_processes ok",
+			})
+		}
+	}
+
+	if t.WinDriveDriver == nil {
+		components = append(components, HealthComponent{
+			Name:    "windrive_driver",
+			Status:  "degraded",
+			Message: "windrive not connected",
+		})
+	} else {
+		components = append(components, HealthComponent{
+			Name:    "windrive_driver",
+			Status:  "ok",
+			Message: "connected",
+		})
+	}
+
+	if _, err := enumProcessModules(uint32(os.Getpid())); err != nil {
+		components = append(components, HealthComponent{
+			Name:    "module_enumeration",
+			Status:  "degraded",
+			Message: err.Error(),
+		})
+	} else {
+		components = append(components, HealthComponent{
+			Name:    "module_enumeration",
+			Status:  "ok",
+			Message: "toolhelp snapshot ok",
+		})
+	}
+
+	if _, err := enumNetworkConnections("all"); err != nil {
+		components = append(components, HealthComponent{
+			Name:    "network_enumeration",
+			Status:  "degraded",
+			Message: err.Error(),
+		})
+	} else {
+		components = append(components, HealthComponent{
+			Name:    "network_enumeration",
+			Status:  "ok",
+			Message: "iphlpapi query ok",
+		})
+	}
+
+	overall := "ok"
+	for _, c := range components {
+		if c.Status == "down" {
+			overall = "down"
+			break
+		}
+		if c.Status == "degraded" && overall != "down" {
+			overall = "degraded"
+		}
+	}
+
+	reply.OverallStatus = overall
+	reply.GeneratedAt = time.Now().Format(time.RFC3339)
+	reply.Components = components
+	return nil
+}

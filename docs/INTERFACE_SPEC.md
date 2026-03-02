@@ -1,29 +1,27 @@
-# OpenSysKit 接口文档（Electron 直连 Pipe）
+# OpenSysKit 接口教学文档（框架无关）
 
-版本：`v2`  
-状态：`Draft / 可直接实现`  
-适用前端：`Electron (JS)`
-
----
-
-## 1. 总体方案
-
-采用 **Electron 主进程（Main Process）直接连接命名管道**：
-
-- Pipe: `\\.\pipe\OpenSysKit`
-- 协议: `JSON-RPC 2.0`（每条请求/响应一行，`\n` 分隔）
-
-调用链：
-
-`Renderer -> preload -> Electron main -> \\.\pipe\OpenSysKit`
-
-说明：
-- Renderer 不直接访问管道
-- Node `net.connect('\\\\.\\pipe\\OpenSysKit')` 仅在 main 侧使用
+版本：`v3`  
+定位：`只讲接口，不绑定前端框架`
 
 ---
 
-## 2. 传输协议
+## 1. 接口总览
+
+OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
+
+- Pipe 名称：`\\.\pipe\OpenSysKit`
+- 协议：`JSON-RPC 2.0`
+- 数据边界：一条请求一行（`\n` 结尾）
+
+你可以用任意前端/客户端实现，只要能完成：
+
+1. 连接命名管道  
+2. 发送 JSON-RPC 请求行  
+3. 读取 JSON-RPC 响应行
+
+---
+
+## 2. 请求与响应格式
 
 ### 2.1 请求格式
 
@@ -38,6 +36,12 @@
   ]
 }
 ```
+
+字段说明：
+
+- `id`：请求 ID，前后对应即可（数字或字符串都可，建议数字）。
+- `method`：方法名，见下文方法清单。
+- `params`：固定为数组，当前服务使用数组第一项对象作为参数。
 
 ### 2.2 响应格式
 
@@ -61,22 +65,19 @@
   "result": null,
   "error": {
     "code": -32000,
-    "message": "xxx"
+    "message": "错误描述"
   }
 }
 ```
 
-### 2.3 连接策略
-
-1. 支持短连接：每次请求单独连接管道。  
-2. 支持长连接：一个连接发送多次请求。  
-3. 前端建议默认短连接，逻辑更简单、故障隔离更清晰。
-
 ---
 
-## 3. 方法定义
+## 3. 方法清单
 
 ### 3.1 `Toolkit.Ping`
+
+作用：检查链路是否连通。  
+参数：空对象。
 
 请求：
 
@@ -100,6 +101,9 @@
 
 ### 3.2 `Toolkit.EnumProcesses`
 
+作用：枚举进程列表。  
+参数：空对象。
+
 请求：
 
 ```json
@@ -110,7 +114,7 @@
 }
 ```
 
-成功结果：
+成功结果示例：
 
 ```json
 {
@@ -129,6 +133,9 @@
 ---
 
 ### 3.3 `Toolkit.ProtectProcess`
+
+作用：将指定 PID 加入保护列表。  
+参数：`process_id`（uint32）。
 
 请求：
 
@@ -156,6 +163,9 @@
 
 ### 3.4 `Toolkit.UnprotectProcess`
 
+作用：将指定 PID 从保护列表移除。  
+参数：`process_id`（uint32）。
+
 请求：
 
 ```json
@@ -181,6 +191,9 @@
 ---
 
 ### 3.5 `Toolkit.KillProcess`
+
+作用：结束指定 PID。  
+参数：`process_id`（uint32）。
 
 请求：
 
@@ -208,6 +221,12 @@
 
 ### 3.6 `Toolkit.SetProtectPolicy`
 
+作用：设置保护策略掩码。  
+参数：
+
+- `version`：当前使用 `1`
+- `deny_access_mask`：访问掩码（uint32）
+
 请求：
 
 ```json
@@ -224,7 +243,9 @@
 ```
 
 说明：
-- `2049 == 0x801`，即 `PROCESS_TERMINATE(0x1) + PROCESS_SUSPEND_RESUME(0x800)`。
+
+- `2049 == 0x801`
+- 默认表示：拦截 `PROCESS_TERMINATE(0x1)` + `PROCESS_SUSPEND_RESUME(0x800)`
 
 成功结果：
 
@@ -236,107 +257,21 @@
 
 ---
 
-## 4. Electron 最小实现（JS）
+## 4. 实现注意事项
 
-### 4.1 Main 进程（Pipe 客户端）
-
-```js
-// main/pipeClient.js
-const net = require("net");
-
-const PIPE_NAME = "\\\\.\\pipe\\OpenSysKit";
-
-function callRpc(method, params = {}) {
-  return new Promise((resolve, reject) => {
-    const id = Date.now();
-    const req = JSON.stringify({ id, method, params: [params] }) + "\n";
-
-    const client = net.connect(PIPE_NAME, () => client.write(req));
-
-    let buf = "";
-    client.on("data", chunk => {
-      buf += chunk.toString("utf8");
-      const idx = buf.indexOf("\n");
-      if (idx >= 0) {
-        const line = buf.slice(0, idx);
-        client.end();
-        try {
-          const resp = JSON.parse(line);
-          if (resp.error) {
-            reject(new Error(resp.error.message || "RPC error"));
-            return;
-          }
-          resolve(resp.result ?? {});
-        } catch (e) {
-          reject(e);
-        }
-      }
-    });
-
-    client.on("error", reject);
-  });
-}
-
-module.exports = { callRpc };
-```
-
-### 4.2 IPC 暴露给 Renderer
-
-```js
-// main/main.js
-const { ipcMain } = require("electron");
-const { callRpc } = require("./pipeClient");
-
-ipcMain.handle("osk:protect", (_, pid) =>
-  callRpc("Toolkit.ProtectProcess", { process_id: pid })
-);
-ipcMain.handle("osk:unprotect", (_, pid) =>
-  callRpc("Toolkit.UnprotectProcess", { process_id: pid })
-);
-ipcMain.handle("osk:kill", (_, pid) =>
-  callRpc("Toolkit.KillProcess", { process_id: pid })
-);
-ipcMain.handle("osk:enum", () =>
-  callRpc("Toolkit.EnumProcesses", {})
-);
-ipcMain.handle("osk:ping", () =>
-  callRpc("Toolkit.Ping", {})
-);
-```
-
-### 4.3 Preload 白名单 API
-
-```js
-// preload.js
-const { contextBridge, ipcRenderer } = require("electron");
-
-contextBridge.exposeInMainWorld("osk", {
-  ping: () => ipcRenderer.invoke("osk:ping"),
-  enumProcesses: () => ipcRenderer.invoke("osk:enum"),
-  protect: pid => ipcRenderer.invoke("osk:protect", pid),
-  unprotect: pid => ipcRenderer.invoke("osk:unprotect", pid),
-  kill: pid => ipcRenderer.invoke("osk:kill", pid),
-});
-```
+1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  
+2. 建议每次请求使用独立 `id`。  
+3. 建议客户端做超时控制（例如 3~5 秒）。  
+4. 收到 `error != null` 时，应以 `error.message` 为准提示。
 
 ---
 
-## 5. 错误处理建议
+## 5. 常见错误与定位
 
-| 场景 | 前端提示 |
-|---|---|
-| Pipe 连接失败 | `无法连接 OpenSysKit 后端，请确认 OpenSysKit.exe 已启动` |
-| RPC error != null | `内核调用失败：{message}` |
-| 参数非法 | `参数错误，请检查 PID 或策略值` |
-| 请求超时 | `请求超时，请重试` |
-
----
-
-## 6. 安全要求（Electron）
-
-1. `nodeIntegration = false`。  
-2. `contextIsolation = true`。  
-3. Renderer 只能通过 `preload` 暴露的白名单方法访问能力。  
-4. 不在 Renderer 拼接任意 method 字符串，method 固定映射。  
-5. 所有危险动作（`kill/protect/unprotect`）必须二次确认。
+| 现象 | 可能原因 | 处理建议 |
+|---|---|---|
+| 连接管道失败 | `OpenSysKit.exe` 未运行 | 先启动后端 |
+| 请求无响应 | 未发送换行 | 检查是否以 `\n` 结束 |
+| 返回 RPC 错误 | 参数非法或驱动状态异常 | 先 `Ping` 再重试 |
+| `Protect` 成功但行为不符 | 目标进程句柄已提前获取 | 重新按“先保护再新开句柄”验证 |
 

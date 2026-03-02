@@ -470,6 +470,110 @@ OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
 
 ---
 
+### 3.13 `Toolkit.GetProcessTree`
+
+作用：返回当前系统进程树（按 PID 升序，含 children）。  
+参数：空对象。
+
+请求：
+
+```json
+{
+  "id": 13,
+  "method": "Toolkit.GetProcessTree",
+  "params": [{}]
+}
+```
+
+---
+
+### 3.14 `Toolkit.KillProcessTree`
+
+作用：按子树结束进程（默认叶子优先）。  
+参数：
+
+- `process_id`：目标 PID
+- `include_root`：是否包含根进程
+- `leaves_first`：是否叶子优先
+- `strict_errors`：遇错即停
+
+请求：
+
+```json
+{
+  "id": 14,
+  "method": "Toolkit.KillProcessTree",
+  "params": [
+    {
+      "process_id": 5388,
+      "include_root": true,
+      "leaves_first": true,
+      "strict_errors": false
+    }
+  ]
+}
+```
+
+---
+
+### 3.15 `Toolkit.EnumThreads`
+
+作用：按 PID 枚举线程。  
+参数：`process_id`（uint32）。
+
+---
+
+### 3.16 `Toolkit.SuspendThread`
+
+作用：挂起指定线程。  
+参数：`thread_id`（uint32）。
+
+---
+
+### 3.17 `Toolkit.ResumeThread`
+
+作用：恢复指定线程。  
+参数：`thread_id`（uint32）。
+
+---
+
+### 3.18 `Toolkit.ListServices`
+
+作用：服务枚举（名称、显示名、状态、启动类型）。  
+参数：`name_like`（可选，名称过滤）。
+
+---
+
+### 3.19 `Toolkit.StartService` / `Toolkit.StopService`
+
+作用：启动或停止服务。  
+参数：`name`（服务名）。
+
+---
+
+### 3.20 `Toolkit.SetServiceStartType`
+
+作用：设置服务启动类型。  
+参数：
+
+- `name`：服务名
+- `start_type`：`auto | manual | disabled`
+
+---
+
+### 3.21 `Toolkit.ApplyProtectTemplate`
+
+作用：一键切换 WinDrive 保护模板。  
+参数：`template`：`low | medium | high`。
+
+说明：
+
+- `low`：仅拦截 `PROCESS_TERMINATE`
+- `medium`：拦截 `TERMINATE + SUSPEND_RESUME`
+- `high`：拦截 `TERMINATE + VM_WRITE + SET_INFORMATION + SUSPEND_RESUME`
+
+---
+
 ## 4. 实现注意事项
 
 1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  

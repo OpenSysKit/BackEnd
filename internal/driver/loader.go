@@ -195,6 +195,10 @@ func (l *Loader) installAndStart(sysPath string) error {
 
 // MapDriver 使用 WinDrive 映射未签名驱动
 func (l *Loader) MapDriver(sysPath string) (uint64, error) {
+	if l.handle == syscall.InvalidHandle {
+		return 0, fmt.Errorf("loader 设备未连接")
+	}
+
 	fullPath, err := syscall.FullPath(sysPath)
 	if err != nil {
 		return 0, err
@@ -204,6 +208,9 @@ func (l *Loader) MapDriver(sysPath string) (uint64, error) {
 	ntPath16, err := syscall.UTF16FromString(ntPath)
 	if err != nil {
 		return 0, err
+	}
+	if len(ntPath16) > maxDriverPath {
+		return 0, fmt.Errorf("驱动路径过长，最大支持 %d UTF-16 字符(含终止符)", maxDriverPath)
 	}
 
 	req := loadDriverRequest{
@@ -227,6 +234,9 @@ func (l *Loader) MapDriver(sysPath string) (uint64, error) {
 
 	if err != nil {
 		return 0, fmt.Errorf("映射请求失败: %w", err)
+	}
+	if bytesReturned < uint32(unsafe.Sizeof(resp)) {
+		return 0, fmt.Errorf("映射响应长度异常: got=%d want=%d", bytesReturned, unsafe.Sizeof(resp))
 	}
 
 	if resp.Status != 0 {
@@ -281,6 +291,9 @@ func (l *Loader) ListMappedDrivers() ([]LoadedDriverInfo, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询映射驱动列表失败: %w", err)
+	}
+	if bytesReturned < uint32(unsafe.Sizeof(resp)) {
+		return nil, fmt.Errorf("映射驱动列表响应长度异常: got=%d want=%d", bytesReturned, unsafe.Sizeof(resp))
 	}
 
 	count := int(resp.Count)

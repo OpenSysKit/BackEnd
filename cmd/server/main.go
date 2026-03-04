@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,13 @@ var (
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	if shouldEnterAutoUninstallMode() {
+		if err := runAutoUninstallMode(); err != nil {
+			log.Fatalf("自动卸载失败: %v", err)
+		}
+		return
+	}
+
 	if shouldEnterUninstallMode() {
 		if err := runUninstallMode(); err != nil {
 			log.Fatalf("卸载失败: %v", err)
@@ -36,6 +44,8 @@ func main() {
 	// 打开内核驱动设备
 	var drv driver.Device
 	var winDriveDrv driver.Device
+	mappedHandles := make([]uint64, 0, 1)
+	mappedByThisProcess := false
 	client, err := driver.Open(devicePath)
 	if err == nil {
 		drv = client
@@ -56,6 +66,8 @@ func main() {
 			if handle, mapErr := loader.MapDriver("OpenSysKit.sys"); mapErr != nil {
 				log.Printf("警告: 映射驱动失败: %v", mapErr)
 			} else {
+				mappedHandles = append(mappedHandles, handle)
+				mappedByThisProcess = true
 				log.Printf("驱动映射成功，句柄: %d", handle)
 
 				// 设备/符号链接注册需要时间，带退避重试
@@ -113,6 +125,23 @@ func main() {
 	<-sig
 
 	log.Println("正在关闭服务...")
+
+	if !autoUninstallEnabled() {
+		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
+		return
+	}
+
+	if !mappedByThisProcess || len(mappedHandles) == 0 {
+		log.Printf("自动卸载已跳过: mapped_by_this_process=%t, handles=%s", mappedByThisProcess, formatHandleList(mappedHandles))
+		return
+	}
+
+	if err := scheduleSelfUninstall(5*time.Second, mappedHandles); err != nil {
+		log.Printf("警告: 调度自动卸载流程失败: %v", err)
+		return
+	}
+
+	log.Printf("已调度自动卸载流程: OpenSysKit.exe uninstall --handles=%s", formatHandleList(mappedHandles))
 }
 
 func shouldEnterUninstallMode() bool {
@@ -121,4 +150,25 @@ func shouldEnterUninstallMode() bool {
 	}
 	arg := os.Args[1]
 	return arg == "uninstall" || arg == "--uninstall"
+}
+
+func shouldEnterAutoUninstallMode() bool {
+	if len(os.Args) < 2 {
+		return false
+	}
+	arg := os.Args[1]
+	return arg == "autouninstall" || arg == "--autouninstall"
+}
+
+func autoUninstallEnabled() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("OPENSYSKIT_AUTO_UNINSTALL")))
+	if raw == "" {
+		return true
+	}
+	switch raw {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
 }

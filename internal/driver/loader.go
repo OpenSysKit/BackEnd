@@ -383,7 +383,7 @@ func UninstallLoaderService() error {
 	return nil
 }
 
-// Close 释放资源
+// Close 释放资源。
 // 稳定性策略：退出时不触发任何卸载链路，仅关闭当前进程句柄。
 // 驱动卸载应通过显式管理命令执行，避免在进程退出阶段触发 0xCE 风险。
 func (l *Loader) Close() {
@@ -393,14 +393,14 @@ func (l *Loader) Close() {
 
 	fmt.Println("[Loader] Close: skip auto-unload of mapped drivers/services for stability")
 
-	// 1. 关闭设备句柄
+	// 1) 关闭设备句柄
 	syscall.Close(l.handle)
 	l.handle = syscall.InvalidHandle
 
-	// 2. 清理本进程内记录状态。
+	// 2) 清理本进程内记录状态。
 	l.mappedHandles = nil
 
-	// 3. 不主动卸载 DriverLoader 服务，保持加载器常驻。
+	// 3) 不主动卸载 DriverLoader 服务，保持加载器常驻。
 	// 仅释放当前进程资源，避免服务卸载链路带来的系统稳定性风险。
 	if l.m != nil {
 		l.m.Disconnect()

@@ -1,25 +1,34 @@
-# OpenSysKit
+# OpenSysKit BackEnd
 
-> Windows 内核级系统工具箱
+OpenSysKit BackEnd 是 Windows 平台的命名管道 JSON-RPC 服务，负责：
 
-OpenSysKit 是一款 Windows 平台的内核级系统管理工具，提供进程管理、驱动管理等底层系统操作能力。本仓库为后端服务，负责与内核驱动通信并向前端暴露 JSON-RPC 接口。
+- 与 `OpenSysKit.sys` 交互（进程/文件等内核能力）
+- 与 `DriverLoader.sys`(WinDrive) 交互（进程保护策略）
+- 向前端暴露 `Toolkit.*` RPC 接口
 
-## 快速开始
+## 文档入口
 
-### 命令行卸载模式
+- 接口完整文档（逐接口 JSON 示例）：[docs/INTERFACE_SPEC.md](./docs/INTERFACE_SPEC.md)
+- 接口速查表（前端对接一页版）：[docs/INTERFACE_QUICK_REF.md](./docs/INTERFACE_QUICK_REF.md)
 
-用于手动清理驱动链路（先卸载 OpenSysKit，再在无其他映射驱动时卸载 WinDrive）：
+两份文档均按当前代码实现维护，包含每个接口的真实成功/错误返回。
+
+## 运行
+
+```powershell
+cd BackEnd
+
+go build -o bin/OpenSysKit.exe ./cmd/server
+.\bin\OpenSysKit.exe
+```
+
+## 卸载模式
 
 ```powershell
 .\bin\OpenSysKit.exe uninstall
 ```
 
-行为约束：
+说明：
 
-- 若 WinDrive 映射驱动数量为 `0`：直接进入 WinDrive 卸载流程。
-- 若映射驱动数量为 `1`：按 OpenSysKit 处理并卸载后继续。
-- 若映射驱动数量 `>1`：拒绝自动卸载，提示先手动处理，避免误卸载其他驱动。
-
-## 许可证
-
-待定
+- `uninstall` 会先处理映射驱动，再在满足条件时卸载 WinDrive 服务
+- 支持按 handle 指定卸载目标（见接口文档）

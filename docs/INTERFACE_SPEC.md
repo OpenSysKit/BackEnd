@@ -1,826 +1,1019 @@
-# OpenSysKit 接口教学文档（框架无关）
+# OpenSysKit BackEnd 接口文档（与当前代码一致）
 
-版本：`v3`  
-定位：`只讲接口，不绑定前端框架`
+更新时间：2026-03-05  
+适用范围：`BackEnd` 当前 `main` 分支
 
----
-
-## 1. 接口总览
-
-OpenSysKit 后端通过 Windows 命名管道提供 JSON-RPC 服务。
-
-- Pipe 名称：`\\.\pipe\OpenSysKit`
-- 协议：`JSON-RPC 2.0`
-- 数据边界：一条请求一行（`\n` 结尾）
-
-你可以用任意前端/客户端实现，只要能完成：
-
-1. 连接命名管道  
-2. 发送 JSON-RPC 请求行  
-3. 读取 JSON-RPC 响应行
+- 速查版： [INTERFACE_QUICK_REF.md](./INTERFACE_QUICK_REF.md)
 
 ---
 
-## 2. 请求与响应格式
+## 1. 传输与协议
 
-### 2.1 请求格式
+- 传输：Windows 命名管道 `\\.\pipe\OpenSysKit`
+- RPC：Go 标准库 `net/rpc/jsonrpc`（JSON-RPC over stream）
+- 服务名：`Toolkit`
+- 方法名格式：`Toolkit.<Method>`
 
-```json
-{
-  "id": 1,
-  "method": "Toolkit.ProtectProcess",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
-}
-```
-
-字段说明：
-
-- `id`：请求 ID，前后对应即可（数字或字符串都可，建议数字）。
-- `method`：方法名，见下文方法清单。
-- `params`：固定为数组，当前服务使用数组第一项对象作为参数。
-
-### 2.2 响应格式
-
-成功：
-
-```json
-{
-  "id": 1,
-  "result": {
-    "success": true
-  },
-  "error": null
-}
-```
-
-失败：
-
-```json
-{
-  "id": 1,
-  "result": null,
-  "error": {
-    "code": -32000,
-    "message": "错误描述"
-  }
-}
-```
-
----
-
-## 3. 方法清单
-
-### 3.1 `Toolkit.Ping`
-
-作用：检查链路是否连通。  
-参数：空对象。
-
-请求：
+请求格式（真实）：
 
 ```json
 {
   "id": 1,
   "method": "Toolkit.Ping",
-  "params": [{}]
+  "params": [
+    {}
+  ]
 }
 ```
 
-成功结果：
+说明：
 
-```json
-{
-  "status": "ok"
-}
-```
+- `params` 必须是数组，服务端按第一个对象反序列化参数。
+- 缺少 `params` 时会返回：`jsonrpc: request body missing params`。
 
 ---
 
-### 3.2 `Toolkit.EnumProcesses`
+## 2. 响应格式（真实）
 
-作用：枚举进程列表。  
-参数：空对象。
+### 2.1 成功
 
-请求：
+```json
+{
+  "id": 1,
+  "result": {"status": "ok"},
+  "error": null
+}
+```
+
+### 2.2 失败
+
+```json
+{
+  "id": 1,
+  "result": null,
+  "error": "驱动未加载"
+}
+```
+
+说明：
+
+- 该实现里 `error` 是字符串，不是 `{code,message}` 对象。
+- `error` 文本通常是方法里 `fmt.Errorf(...)` 的结果，可能包含底层错误拼接。
+
+---
+
+## 3. 接口清单（逐接口真实成功/错误返回）
+
+## 3.1 `Toolkit.Ping`
+
+参数：`{}`
+
+成功返回：
+
+```json
+{
+  "id": 1,
+  "result": {"status": "ok"},
+  "error": null
+}
+```
+
+错误返回（示例，缺少 params）：
+
+```json
+{
+  "id": 1,
+  "result": null,
+  "error": "jsonrpc: request body missing params"
+}
+```
+
+## 3.2 `Toolkit.EnumProcesses`
+
+参数：`{}`
+
+成功返回：
 
 ```json
 {
   "id": 2,
-  "method": "Toolkit.EnumProcesses",
-  "params": [{}]
+  "result": {
+    "processes": [
+      {
+        "process_id": 5388,
+        "parent_process_id": 1234,
+        "thread_count": 10,
+        "working_set_size": 12345678,
+        "image_name": "TestTool.exe"
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例）：
 
 ```json
 {
-  "processes": [
-    {
-      "process_id": 5388,
-      "parent_process_id": 1234,
-      "thread_count": 10,
-      "working_set_size": 12345678,
-      "image_name": "CCleanerPerformanceOptimizerService"
-    }
-  ]
+  "id": 2,
+  "result": null,
+  "error": "驱动未加载"
 }
 ```
 
----
+常见错误文本：
 
-### 3.3 `Toolkit.ProtectProcess`
+- `驱动未加载`
+- `枚举进程失败: ...`
+- `返回数据过小`
+- `解析头部失败: ...`
 
-作用：将指定 PID 加入保护列表。  
-参数：`process_id`（uint32）。
+## 3.3 `Toolkit.KillProcess`
 
-请求：
+参数：`{"process_id": <uint32>}`
+
+成功返回：
 
 ```json
 {
   "id": 3,
-  "method": "Toolkit.ProtectProcess",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
+  "result": {"success": true},
+  "error": null
 }
 ```
 
-成功结果：
+错误返回（示例）：
 
 ```json
 {
-  "success": true
+  "id": 3,
+  "result": null,
+  "error": "结束进程失败: ..."
 }
 ```
 
----
+## 3.4 `Toolkit.ProtectProcess`
 
-### 3.4 `Toolkit.UnprotectProcess`
+参数：`{"process_id": <uint32>}`
 
-作用：将指定 PID 从保护列表移除。  
-参数：`process_id`（uint32）。
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 4,
-  "method": "Toolkit.UnprotectProcess",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
+  "result": {"success": true},
+  "error": null
 }
 ```
 
-成功结果：
+错误返回（示例）：
 
 ```json
 {
-  "success": true
+  "id": 4,
+  "result": null,
+  "error": "WinDrive 未加载"
 }
 ```
 
----
+## 3.5 `Toolkit.UnprotectProcess`
 
-### 3.5 `Toolkit.KillProcess`
+参数：`{"process_id": <uint32>}`
 
-作用：结束指定 PID。  
-参数：`process_id`（uint32）。
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 5,
-  "method": "Toolkit.KillProcess",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
+  "result": {"success": true},
+  "error": null
 }
 ```
 
-成功结果：
+错误返回（示例）：
 
 ```json
 {
-  "success": true
+  "id": 5,
+  "result": null,
+  "error": "取消保护进程失败: ..."
 }
 ```
 
----
+## 3.6 `Toolkit.SetProtectPolicy`
 
-### 3.6 `Toolkit.SetProtectPolicy`
-
-作用：设置保护策略掩码。  
 参数：
 
-- `version`：当前使用 `1`
-- `deny_access_mask`：访问掩码（uint32）
+```json
+{"version": 1, "deny_access_mask": 2049}
+```
 
-请求：
+成功返回：
 
 ```json
 {
   "id": 6,
-  "method": "Toolkit.SetProtectPolicy",
-  "params": [
-    {
-      "version": 1,
-      "deny_access_mask": 2049
-    }
-  ]
+  "result": {"success": true},
+  "error": null
 }
 ```
 
-说明：
-
-- `2049 == 0x801`
-- 默认表示：拦截 `PROCESS_TERMINATE(0x1)` + `PROCESS_SUSPEND_RESUME(0x800)`
-
-成功结果：
+错误返回（示例）：
 
 ```json
 {
-  "success": true
+  "id": 6,
+  "result": null,
+  "error": "设置保护策略失败: ..."
 }
 ```
 
----
+## 3.7 `Toolkit.ListDirectory`
 
-### 3.7 `Toolkit.ListDirectory`
+参数：
 
-作用：列出目录项（目录优先 + 名称排序）。  
-参数：`path`（字符串，目录绝对路径）。
+```json
+{"path": "C:\\"}
+```
 
-请求：
+`path` 为空时默认系统盘根目录。
+
+成功返回：
 
 ```json
 {
   "id": 7,
-  "method": "Toolkit.ListDirectory",
-  "params": [
-    {
-      "path": "C:\\"
-    }
-  ]
+  "result": {
+    "current_path": "C:\\",
+    "parent_path": "",
+    "entries": [
+      {
+        "name": "Windows",
+        "path": "C:\\Windows",
+        "is_dir": true,
+        "size": 0,
+        "mod_time": "2026-03-05T10:00:00+08:00"
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例）：
 
 ```json
 {
-  "current_path": "C:\\",
-  "parent_path": "",
-  "entries": [
-    {
-      "name": "Windows",
-      "path": "C:\\Windows",
-      "is_dir": true,
-      "size": 0,
-      "mod_time": "2026-03-01T10:00:00+08:00"
-    }
-  ]
+  "id": 7,
+  "result": null,
+  "error": "读取目录失败: ..."
 }
 ```
 
----
+## 3.8 `Toolkit.DeleteFileKernel`
 
-### 3.8 `Toolkit.DeleteFileKernel`
+参数：
 
-作用：通过 OpenSysKit 驱动执行内核文件删除。  
-参数：`path`（字符串，文件绝对路径）。
+```json
+{"path": "C:\\Temp\\test.txt"}
+```
 
-请求：
+成功返回：
 
 ```json
 {
   "id": 8,
-  "method": "Toolkit.DeleteFileKernel",
-  "params": [
-    {
-      "path": "C:\\Temp\\test.txt"
-    }
-  ]
+  "result": {"success": true},
+  "error": null
 }
 ```
 
-成功结果：
+错误返回（示例）：
 
 ```json
 {
-  "success": true
+  "id": 8,
+  "result": null,
+  "error": "path 不能为空"
 }
 ```
 
----
+常见错误文本：
 
-### 3.9 `Toolkit.KillFileLockingProcesses`
+- `驱动未加载`
+- `path 不能为空`
+- `路径编码失败: ...`
+- `路径过长，最大支持 N UTF-16 字符`
+- `内核删除文件失败: ...`
 
-作用：查询占用指定文件的进程，并调用内核 `KillProcess` 执行结束。  
-参数：`path`（字符串，文件绝对路径）。
+## 3.9 `Toolkit.KillFileLockingProcesses`
 
-请求：
+参数：
+
+```json
+{"path": "C:\\Temp\\test.txt"}
+```
+
+成功返回（注意：即使部分 PID 失败，整体仍可能是成功响应，失败写在 `results` 内）：
 
 ```json
 {
   "id": 9,
-  "method": "Toolkit.KillFileLockingProcesses",
-  "params": [
-    {
-      "path": "C:\\Temp\\test.txt"
-    }
-  ]
+  "result": {
+    "found_pids": [5388, 9524],
+    "results": [
+      {"process_id": 5388, "success": true},
+      {"process_id": 9524, "success": false, "error": "Access is denied."}
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例，参数问题）：
 
 ```json
 {
-  "found_pids": [5388, 9524],
-  "results": [
-    { "process_id": 5388, "success": true },
-    { "process_id": 9524, "success": false, "error": "..." }
-  ]
+  "id": 9,
+  "result": null,
+  "error": "path 不能为空"
 }
 ```
 
----
+## 3.10 `Toolkit.EnumProcessModules`
 
-### 3.10 `Toolkit.HealthCheck`
+参数：`{"process_id": <uint32>}`
 
-作用：健康检查面板数据源，检查后端链路与关键能力。  
-参数：空对象。
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 10,
-  "method": "Toolkit.HealthCheck",
-  "params": [{}]
+  "result": {
+    "process_id": 5388,
+    "modules": [
+      {
+        "process_id": 5388,
+        "module_name": "kernel32.dll",
+        "base_address": 140709826207744,
+        "size": 770048,
+        "path": "C:\\Windows\\System32\\kernel32.dll"
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例）：
 
 ```json
 {
-  "overall_status": "degraded",
-  "generated_at": "2026-03-02T13:00:00+08:00",
-  "components": [
-    { "name": "backend", "status": "ok", "message": "rpc service running" },
-    { "name": "opensyskit_driver", "status": "ok", "message": "ioctl enum_processes ok" },
-    { "name": "windrive_driver", "status": "degraded", "message": "windrive not connected" }
-  ]
+  "id": 10,
+  "result": null,
+  "error": "process_id must be > 0"
 }
 ```
 
----
+## 3.11 `Toolkit.EnumNetworkConnections`
 
-### 3.11 `Toolkit.EnumProcessModules`
+参数：`{"protocol": "all|tcp|udp"}`（空值默认 `all`）
 
-作用：按 PID 枚举模块（模块名/基址/大小/路径）。  
-参数：`process_id`（uint32）。
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 11,
-  "method": "Toolkit.EnumProcessModules",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
+  "result": {
+    "protocol": "all",
+    "connections": [
+      {
+        "protocol": "tcp",
+        "local_ip": "127.0.0.1",
+        "local_port": 19090,
+        "remote_ip": "0.0.0.0",
+        "remote_port": 0,
+        "state": "listen",
+        "process_id": 1234,
+        "process_name": "TestTool.exe"
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例）：
 
 ```json
 {
-  "process_id": 5388,
-  "modules": [
-    {
-      "process_id": 5388,
-      "module_name": "kernel32.dll",
-      "base_address": 140709826207744,
-      "size": 770048,
-      "path": "C:\\Windows\\System32\\kernel32.dll"
-    }
-  ]
+  "id": 11,
+  "result": null,
+  "error": "protocol 仅支持 all/tcp/udp"
 }
 ```
 
----
+## 3.12 `Toolkit.HealthCheck`
 
-### 3.12 `Toolkit.EnumNetworkConnections`
+参数：`{}`
 
-作用：枚举 TCP/UDP 连接与 PID 关联。  
-参数：
-
-- `protocol`：`all | tcp | udp`
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 12,
-  "method": "Toolkit.EnumNetworkConnections",
-  "params": [
-    {
-      "protocol": "all"
-    }
-  ]
+  "result": {
+    "overall_status": "degraded",
+    "generated_at": "2026-03-05T10:00:00+08:00",
+    "components": [
+      {"name": "backend", "status": "ok", "message": "rpc service running"},
+      {"name": "opensyskit_driver", "status": "ok", "message": "ioctl enum_processes ok"},
+      {"name": "windrive_driver", "status": "degraded", "message": "windrive not connected"}
+    ]
+  },
+  "error": null
 }
 ```
 
-成功结果示例：
+错误返回（示例，通常仅协议层参数错误）：
 
 ```json
 {
-  "protocol": "all",
-  "connections": [
-    {
-      "protocol": "tcp",
-      "local_ip": "127.0.0.1",
-      "local_port": 19090,
-      "remote_ip": "0.0.0.0",
-      "remote_port": 0,
-      "state": "listen",
-      "process_id": 1234,
-      "process_name": "TestTool.exe"
-    }
-  ]
+  "id": 12,
+  "result": null,
+  "error": "jsonrpc: request body missing params"
 }
 ```
 
----
+## 3.13 `Toolkit.GetProcessTree`
 
-### 3.13 `Toolkit.GetProcessTree`
+参数：`{}`
 
-作用：返回当前系统进程树（按 PID 升序，含 children）。  
-参数：空对象。
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 13,
-  "method": "Toolkit.GetProcessTree",
-  "params": [{}]
+  "result": {
+    "total": 2,
+    "roots": [
+      {
+        "process_id": 1,
+        "parent_process_id": 0,
+        "image_name": "System",
+        "thread_count": 100,
+        "working_set_size": 0,
+        "children": [
+          {
+            "process_id": 5388,
+            "parent_process_id": 1,
+            "image_name": "TestTool.exe",
+            "thread_count": 10,
+            "working_set_size": 123456,
+            "children": []
+          }
+        ]
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
----
+错误返回（示例）：
 
-### 3.14 `Toolkit.KillProcessTree`
+```json
+{
+  "id": 13,
+  "result": null,
+  "error": "驱动未加载"
+}
+```
 
-作用：按子树结束进程（默认叶子优先）。  
+## 3.14 `Toolkit.KillProcessTree`
+
 参数：
-
-- `process_id`：目标 PID
-- `include_root`：是否包含根进程
-- `leaves_first`：是否叶子优先
-- `strict_errors`：遇错即停
-
-请求：
-
-```json
-{
-  "id": 14,
-  "method": "Toolkit.KillProcessTree",
-  "params": [
-    {
-      "process_id": 5388,
-      "include_root": true,
-      "leaves_first": true,
-      "strict_errors": false
-    }
-  ]
-}
-```
-
----
-
-### 3.15 `Toolkit.EnumThreads`
-
-作用：按 PID 枚举线程。  
-参数：`process_id`（uint32）。
-
----
-
-### 3.16 `Toolkit.SuspendThread`
-
-作用：挂起指定线程。  
-参数：`thread_id`（uint32）。
-
----
-
-### 3.17 `Toolkit.ResumeThread`
-
-作用：恢复指定线程。  
-参数：`thread_id`（uint32）。
-
----
-
-### 3.18 `Toolkit.ListServices`
-
-作用：服务枚举（名称、显示名、状态、启动类型）。  
-参数：`name_like`（可选，名称过滤）。
-
----
-
-### 3.19 `Toolkit.StartService` / `Toolkit.StopService`
-
-作用：启动或停止服务。  
-参数：`name`（服务名）。
-
----
-
-### 3.20 `Toolkit.SetServiceStartType`
-
-作用：设置服务启动类型。  
-参数：
-
-- `name`：服务名
-- `start_type`：`auto | manual | disabled`
-
----
-
-### 3.21 `Toolkit.ApplyProtectTemplate`
-
-作用：一键切换 WinDrive 保护模板。  
-参数：`template`：`low | medium | high`。
-
-说明：
-
-- `low`：仅拦截 `PROCESS_TERMINATE`
-- `medium`：拦截 `TERMINATE + SUSPEND_RESUME`
-- `high`：拦截 `TERMINATE + VM_WRITE + SET_INFORMATION + SUSPEND_RESUME`
-
----
-
-### 3.22 `Toolkit.GetAuditLogs`
-
-作用：获取后端写操作审计日志（倒序返回，最新在前）。  
-参数：
-
-- `limit`：返回条数（<=0 时默认 100）
-
-请求：
-
-```json
-{
-  "id": 22,
-  "method": "Toolkit.GetAuditLogs",
-  "params": [
-    {
-      "limit": 100
-    }
-  ]
-}
-```
-
-成功结果示例：
-
-```json
-{
-  "total": 2,
-  "entries": [
-    {
-      "id": 9,
-      "timestamp": "2026-03-02T15:30:00+08:00",
-      "action": "kill_process",
-      "params": { "process_id": 5388 },
-      "success": true
-    }
-  ]
-}
-```
-
----
-
-### 3.23 `Toolkit.ExportReport`
-
-作用：导出测试报告（健康检查 + 进程数量 + 服务数量 + 连接数量，可选包含审计）。  
-参数：
-
-- `path`：输出文件路径（可空，空时自动输出到 `OpenSysKit.exe` 同级 `reports/`）
-- `include_audit`：是否包含审计数据
-- `audit_limit`：审计条数上限（`include_audit=true` 时生效）
-
-请求：
-
-```json
-{
-  "id": 23,
-  "method": "Toolkit.ExportReport",
-  "params": [
-    {
-      "path": "",
-      "include_audit": true,
-      "audit_limit": 200
-    }
-  ]
-}
-```
-
-成功结果示例：
-
-```json
-{
-  "success": true,
-  "path": "E:\\OpenSysKit\\BackEnd\\bin\\reports\\20260302-153000.json",
-  "size": 5821
-}
-```
-
----
-
-### 3.24 `Toolkit.ListStartupEntries`
-
-作用：枚举自启动项入口视图（服务 + 计划任务，不含注册表）。  
-参数：
-
-- `category`：`all | services | tasks`
-- `name_like`：可选名称过滤
-
-请求：
-
-```json
-{
-  "id": 24,
-  "method": "Toolkit.ListStartupEntries",
-  "params": [
-    {
-      "category": "all",
-      "name_like": ""
-    }
-  ]
-}
-```
-
-成功结果示例：
-
-```json
-{
-  "category": "all",
-  "entries": [
-    {
-      "source": "service",
-      "name": "WinDefend",
-      "display_name": "Microsoft Defender Antivirus Service",
-      "state": "running",
-      "run_as": "LocalSystem",
-      "command": "\"C:\\\\Program Files\\\\Windows Defender\\\\MsMpEng.exe\"",
-      "trigger": "auto_start",
-      "detail": ""
-    },
-    {
-      "source": "task",
-      "name": "\\\\Microsoft\\\\Windows\\\\Windows Defender\\\\Windows Defender Scheduled Scan",
-      "state": "ready",
-      "run_as": "SYSTEM",
-      "trigger": "MSFT_TaskBootTrigger;MSFT_TaskLogonTrigger",
-      "detail": ""
-    }
-  ]
-}
-```
-
----
-
-### 3.25 `Toolkit.EnumHandles`
-
-作用：按 PID 观测句柄总数与类型分布（只读）。  
-参数：
-
-- `process_id`：目标 PID
-
-请求：
-
-```json
-{
-  "id": 25,
-  "method": "Toolkit.EnumHandles",
-  "params": [
-    {
-      "process_id": 5388
-    }
-  ]
-}
-```
-
-成功结果示例：
 
 ```json
 {
   "process_id": 5388,
-  "total_handles": 421,
-  "types": [
-    { "type_index": 7, "type_name": "Process", "count": 96 },
-    { "type_index": 17, "type_name": "Thread", "count": 84 },
-    { "type_index": 27, "type_name": "File", "count": 63 }
-  ]
+  "include_root": true,
+  "leaves_first": true,
+  "strict_errors": false
 }
 ```
 
-说明：
+成功返回（`strict_errors=false` 时允许部分失败）：
 
-- `type_name` 基于句柄类型索引解析，若解析失败会返回 `type#<index>` 占位名。
+```json
+{
+  "id": 14,
+  "result": {
+    "target_process_id": 5388,
+    "ordered_pids": [9524, 5388],
+    "results": [
+      {"process_id": 9524, "success": true},
+      {"process_id": 5388, "success": false, "error": "Access is denied."}
+    ]
+  },
+  "error": null
+}
+```
 
----
+错误返回（示例，`strict_errors=true` 且中途失败）：
 
-### 3.26 `Toolkit.WatchHandleStats`
+```json
+{
+  "id": 14,
+  "result": null,
+  "error": "结束子树进程失败(pid=5388): ..."
+}
+```
 
-作用：按固定间隔连续采样句柄趋势（默认 6 次，每次间隔 5000ms）。  
+## 3.15 `Toolkit.EnumThreads`
+
+参数：`{"process_id": <uint32>}`
+
+成功返回：
+
+```json
+{
+  "id": 15,
+  "result": {
+    "process_id": 5388,
+    "threads": [
+      {
+        "thread_id": 12000,
+        "owner_process_id": 5388,
+        "base_priority": 8,
+        "delta_priority": 0
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 15,
+  "result": null,
+  "error": "process_id must be > 0"
+}
+```
+
+## 3.16 `Toolkit.EnumHandles`
+
+参数：`{"process_id": <uint32>}`
+
+成功返回：
+
+```json
+{
+  "id": 16,
+  "result": {
+    "process_id": 5388,
+    "total_handles": 421,
+    "types": [
+      {"type_index": 7, "type_name": "Process", "count": 96}
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 16,
+  "result": null,
+  "error": "枚举句柄失败: ..."
+}
+```
+
+## 3.17 `Toolkit.WatchHandleStats`
+
 参数：
 
-- `process_id`：目标 PID
-- `sample_count`：采样次数（1~60）
-- `interval_ms`：采样间隔毫秒（500~10000）
-- `top_n`：每次返回前 N 个句柄类型（1~20）
+```json
+{
+  "process_id": 5388,
+  "sample_count": 6,
+  "interval_ms": 5000,
+  "top_n": 5
+}
+```
 
-请求：
+约束与默认：
+
+- `sample_count`: 默认 6，范围 1~60
+- `interval_ms`: 默认 5000，范围 500~10000
+- `top_n`: 默认 5，范围 1~20
+
+成功返回：
+
+```json
+{
+  "id": 17,
+  "result": {
+    "process_id": 5388,
+    "samples": [
+      {
+        "timestamp": "2026-03-05T10:00:00+08:00",
+        "total_handles": 421,
+        "top_types": [
+          {"type_index": 7, "type_name": "Process", "count": 96}
+        ]
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 17,
+  "result": null,
+  "error": "句柄采样失败(第 1 次): ..."
+}
+```
+
+## 3.18 `Toolkit.ResolvePortConflict`
+
+参数：
+
+```json
+{"port": 8080, "protocol": "all", "action": "kill"}
+```
+
+成功返回（注意：结果里可含部分失败项）：
+
+```json
+{
+  "id": 18,
+  "result": {
+    "port": 8080,
+    "protocol": "all",
+    "action": "kill",
+    "summary": "匹配连接 2 条，成功处置 1 项",
+    "matches": [
+      {
+        "protocol": "tcp",
+        "local_ip": "0.0.0.0",
+        "local_port": 8080,
+        "remote_ip": "0.0.0.0",
+        "remote_port": 0,
+        "state": "listen",
+        "process_id": 1234,
+        "process_name": "TestTool.exe"
+      }
+    ],
+    "results": [
+      {"process_id": 1234, "method": "kill_process", "success": true}
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 18,
+  "result": null,
+  "error": "action 仅支持 kill/disconnect"
+}
+```
+
+常见错误文本：
+
+- `port must be > 0`
+- `protocol 仅支持 all/tcp/udp`
+- `action 仅支持 kill/disconnect`
+- `驱动未加载，无法执行 kill`
+- `disconnect 暂仅支持 TCP`
+
+## 3.19 `Toolkit.SuspendThread`
+
+参数：`{"thread_id": <uint32>}`
+
+成功返回：
+
+```json
+{
+  "id": 19,
+  "result": {"success": true, "suspend_count": 1},
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 19,
+  "result": null,
+  "error": "thread_id must be > 0"
+}
+```
+
+## 3.20 `Toolkit.ResumeThread`
+
+参数：`{"thread_id": <uint32>}`
+
+成功返回：
+
+```json
+{
+  "id": 20,
+  "result": {"success": true, "suspend_count": 0},
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 20,
+  "result": null,
+  "error": "恢复线程失败: ..."
+}
+```
+
+## 3.21 `Toolkit.ListServices`
+
+参数：`{"name_like": ""}`（可选过滤）
+
+成功返回：
+
+```json
+{
+  "id": 21,
+  "result": {
+    "services": [
+      {
+        "name": "WinDefend",
+        "display_name": "Microsoft Defender Antivirus Service",
+        "state": "running",
+        "start_type": "auto"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 21,
+  "result": null,
+  "error": "枚举服务失败: ..."
+}
+```
+
+## 3.22 `Toolkit.ListStartupEntries`
+
+参数：
+
+```json
+{"category": "all", "name_like": ""}
+```
+
+`category` 仅支持：`all/services/tasks`，空值默认 `all`。
+
+成功返回：
+
+```json
+{
+  "id": 22,
+  "result": {
+    "category": "all",
+    "entries": [
+      {
+        "source": "service",
+        "name": "WinDefend",
+        "display_name": "Microsoft Defender Antivirus Service",
+        "state": "running",
+        "run_as": "LocalSystem",
+        "command": "\"C:\\Program Files\\Windows Defender\\MsMpEng.exe\"",
+        "trigger": "auto_start",
+        "detail": ""
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 22,
+  "result": null,
+  "error": "category 仅支持 all/services/tasks"
+}
+```
+
+## 3.23 `Toolkit.StartService`
+
+参数：`{"name": "<service_name>"}`
+
+成功返回：
+
+```json
+{
+  "id": 23,
+  "result": {"success": true},
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 23,
+  "result": null,
+  "error": "name 不能为空"
+}
+```
+
+## 3.24 `Toolkit.StopService`
+
+参数：`{"name": "<service_name>"}`
+
+成功返回：
+
+```json
+{
+  "id": 24,
+  "result": {"success": true},
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 24,
+  "result": null,
+  "error": "停止服务失败: ..."
+}
+```
+
+## 3.25 `Toolkit.SetServiceStartType`
+
+参数：
+
+```json
+{"name": "<service_name>", "start_type": "auto|manual|disabled"}
+```
+
+成功返回：
+
+```json
+{
+  "id": 25,
+  "result": {"success": true},
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 25,
+  "result": null,
+  "error": "修改服务启动类型失败: ..."
+}
+```
+
+## 3.26 `Toolkit.ApplyProtectTemplate`
+
+参数：`{"template": "low|medium|high"}`（空值默认 `medium`）
+
+成功返回：
 
 ```json
 {
   "id": 26,
-  "method": "Toolkit.WatchHandleStats",
-  "params": [
-    {
-      "process_id": 5388,
-      "sample_count": 6,
-      "interval_ms": 5000,
-      "top_n": 5
-    }
-  ]
+  "result": {
+    "success": true,
+    "template": "medium",
+    "version": 1,
+    "deny_access_mask": 2049
+  },
+  "error": null
 }
 ```
 
----
+错误返回（示例）：
 
-### 3.27 `Toolkit.ResolvePortConflict`
+```json
+{
+  "id": 26,
+  "result": null,
+  "error": "template 仅支持 low/medium/high"
+}
+```
 
-作用：按端口执行急救处置。  
-参数：
+## 3.27 `Toolkit.GetAuditLogs`
 
-- `port`：本地端口（1~65535）
-- `protocol`：`all | tcp | udp`
-- `action`：`kill | disconnect`
+参数：`{"limit": 100}`（`<=0` 默认 100）
 
-说明：
-
-- `kill`：结束占用该端口的进程（高风险系统进程会被拒绝）
-- `disconnect`：仅支持 TCP，尝试断开该端口相关连接
-
-请求：
+成功返回：
 
 ```json
 {
   "id": 27,
-  "method": "Toolkit.ResolvePortConflict",
-  "params": [
-    {
-      "port": 8080,
-      "protocol": "all",
-      "action": "kill"
-    }
-  ]
+  "result": {
+    "total": 1,
+    "entries": [
+      {
+        "id": 9,
+        "timestamp": "2026-03-05T10:00:00+08:00",
+        "action": "kill_process",
+        "params": {"process_id": 5388},
+        "success": true
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
+错误返回（示例，协议层）：
+
+```json
+{
+  "id": 27,
+  "result": null,
+  "error": "jsonrpc: request body missing params"
+}
+```
+
+## 3.28 `Toolkit.ExportReport`
+
+参数：
+
+```json
+{"path": "", "include_audit": true, "audit_limit": 200}
+```
+
+说明：`path` 为空时自动输出到 `OpenSysKit.exe` 同级 `reports/`。
+
+成功返回：
+
+```json
+{
+  "id": 28,
+  "result": {
+    "success": true,
+    "path": "E:\\OpenSysKit\\BackEnd\\bin\\reports\\20260305-100000.json",
+    "size": 5821
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 28,
+  "result": null,
+  "error": "收集进程列表失败: 驱动未加载"
+}
+```
+
+常见错误文本：
+
+- `收集健康检查失败: ...`
+- `收集进程列表失败: ...`
+- `收集服务列表失败: ...`
+- `收集网络连接失败: ...`
+- `创建报告目录失败: ...`
+- `序列化报告失败: ...`
+- `写入报告失败: ...`
+
 ---
 
-## 4. 实现注意事项
+## 4. 开发建议
 
-1. 每条请求末尾必须有换行 `\n`，否则服务端会一直等待。  
-2. 建议每次请求使用独立 `id`。  
-3. 建议客户端做超时控制（例如 3~5 秒）。  
-4. 收到 `error != null` 时，应以 `error.message` 为准提示。
-
----
-
-## 5. 常见错误与定位
-
-| 现象 | 可能原因 | 处理建议 |
-|---|---|---|
-| 连接管道失败 | `OpenSysKit.exe` 未运行 | 先启动后端 |
-| 请求无响应 | 未发送换行 | 检查是否以 `\n` 结束 |
-| 返回 RPC 错误 | 参数非法或驱动状态异常 | 先 `Ping` 再重试 |
-| `Protect` 成功但行为不符 | 目标进程句柄已提前获取 | 重新按“先保护再新开句柄”验证 |
-
+- 每次请求都带独立 `id`，便于并发对齐响应。
+- 对 `error != null` 直接按字符串展示，不要按 `error.code` 解析（本实现无 code 字段）。
+- 对“部分失败但整体成功”的接口（`KillFileLockingProcesses`、`KillProcessTree`、`ResolvePortConflict`），要额外检查 `result.results` 里的每一项 `success`。

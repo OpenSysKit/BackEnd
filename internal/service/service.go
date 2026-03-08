@@ -153,6 +153,80 @@ func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessRe
 	return nil
 }
 
+// ElevateProcessArgs 提权进程请求参数
+type ElevateProcessArgs struct {
+	ProcessId uint32 `json:"process_id"`
+	Level     uint32 `json:"level"`
+}
+
+// ElevateProcessReply 提权进程响应
+type ElevateProcessReply struct {
+	Success   bool   `json:"success"`
+	Level     uint32 `json:"level"`
+	LevelName string `json:"level_name"`
+}
+
+// ElevateProcess 调用 OpenSysKit token.cpp 提权指定进程
+func (t *ToolkitService) ElevateProcess(args *ElevateProcessArgs, reply *ElevateProcessReply) error {
+	levelName, ok := elevateLevelName(args.Level)
+	if !ok {
+		err := fmt.Errorf("level 仅支持 0(admin)/1(system)/2(trusted_installer)/3(standard_user)")
+		auditWrite("elevate_process", map[string]any{"process_id": args.ProcessId, "level": args.Level}, err)
+		return err
+	}
+
+	reply.Level = args.Level
+	reply.LevelName = levelName
+
+	if args.ProcessId == 0 || args.ProcessId == 4 {
+		err := fmt.Errorf("process_id 不合法，不能为 0 或 4")
+		auditWrite("elevate_process", map[string]any{
+			"process_id": args.ProcessId,
+			"level":      args.Level,
+			"level_name": levelName,
+		}, err)
+		return err
+	}
+
+	if t.Driver == nil {
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("elevate_process", map[string]any{
+			"process_id": args.ProcessId,
+			"level":      args.Level,
+			"level_name": levelName,
+		}, err)
+		return err
+	}
+
+	req := driver.ProcessElevateRequest{
+		ProcessId: args.ProcessId,
+		Level:     args.Level,
+	}
+	inBuf := new(bytes.Buffer)
+	if err := binary.Write(inBuf, binary.LittleEndian, req); err != nil {
+		return fmt.Errorf("构造请求失败: %w", err)
+	}
+
+	if _, err := t.Driver.IoControl(driver.IOCTL_ELEVATE_PROCESS, inBuf.Bytes(), 0); err != nil {
+		reply.Success = false
+		retErr := fmt.Errorf("提权进程失败: %w", err)
+		auditWrite("elevate_process", map[string]any{
+			"process_id": args.ProcessId,
+			"level":      args.Level,
+			"level_name": levelName,
+		}, retErr)
+		return retErr
+	}
+
+	reply.Success = true
+	auditWrite("elevate_process", map[string]any{
+		"process_id": args.ProcessId,
+		"level":      args.Level,
+		"level_name": levelName,
+	}, nil)
+	return nil
+}
+
 // ProtectProcessArgs 保护进程请求参数
 type ProtectProcessArgs struct {
 	ProcessId uint32 `json:"process_id"`
@@ -361,6 +435,21 @@ func normalizeKernelPath(path string) string {
 	}
 
 	return p
+}
+
+func elevateLevelName(level uint32) (string, bool) {
+	switch level {
+	case driver.ElevateLevelAdmin:
+		return "admin", true
+	case driver.ElevateLevelSystem:
+		return "system", true
+	case driver.ElevateLevelTrustedInstaller:
+		return "trusted_installer", true
+	case driver.ElevateLevelStandardUser:
+		return "standard_user", true
+	default:
+		return "", false
+	}
 }
 
 // DeleteFileKernelArgs 内核删除文件请求参数

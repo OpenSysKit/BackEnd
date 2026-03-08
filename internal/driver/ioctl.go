@@ -23,8 +23,10 @@ var (
 	IOCTL_FREEZE_PROCESS   = CTL_CODE(deviceTypeOpenSysKit, 0x802, methodBuffered, fileAnyAccess)
 	IOCTL_UNFREEZE_PROCESS = CTL_CODE(deviceTypeOpenSysKit, 0x803, methodBuffered, fileAnyAccess)
 	IOCTL_DELETE_FILE      = CTL_CODE(deviceTypeOpenSysKit, 0x804, methodBuffered, fileAnyAccess)
+	IOCTL_ELEVATE_PROCESS  = CTL_CODE(deviceTypeOpenSysKit, 0x807, methodBuffered, fileAnyAccess)
 
-	// WinDrive (DriverLoader) process-protect IOCTLs
+	// WinDrive (DriverLoader) process-protect IOCTLs。
+	// 虽然 function 值与 OpenSysKit 的提权 IOCTL 有重叠，但设备句柄不同。
 	IOCTL_WINDRIVE_PROTECT_PROCESS    = CTL_CODE(deviceTypeOpenSysKit, 0x807, methodBuffered, fileAnyAccess)
 	IOCTL_WINDRIVE_UNPROTECT_PROCESS  = CTL_CODE(deviceTypeOpenSysKit, 0x808, methodBuffered, fileAnyAccess)
 	IOCTL_WINDRIVE_SET_PROTECT_POLICY = CTL_CODE(deviceTypeOpenSysKit, 0x809, methodBuffered, fileAnyAccess)
@@ -36,11 +38,22 @@ const (
 	ProcessKillMethodNone uint32 = 0
 	ProcessKillMethodPsp  uint32 = 1
 	ProcessKillMethodZw   uint32 = 2
+
+	ElevateLevelAdmin            uint32 = 0
+	ElevateLevelSystem           uint32 = 1
+	ElevateLevelTrustedInstaller uint32 = 2
+	ElevateLevelStandardUser     uint32 = 3
 )
 
 // ProcessRequest 对应内核中 PROCESS_REQUEST 结构体
 type ProcessRequest struct {
 	ProcessId uint32
+}
+
+// ProcessElevateRequest 对应内核中 PROCESS_ELEVATE_REQUEST 结构体。
+type ProcessElevateRequest struct {
+	ProcessId uint32
+	Level     uint32
 }
 
 // ProcessKillResult 对应内核中 PROCESS_KILL_RESULT 结构体。

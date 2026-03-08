@@ -1042,6 +1042,72 @@
 - `序列化报告失败: ...`
 - `写入报告失败: ...`
 
+## 3.29 `Toolkit.ElevateProcess`
+
+参数：
+
+```json
+{"process_id": 5388, "level": 3}
+```
+
+说明：
+
+- `level=0` => `admin`
+- `level=1` => `system`
+- `level=2` => `trusted_installer`
+- `level=3` => `standard_user`
+
+成功返回：
+
+```json
+{
+  "id": 29,
+  "result": {
+    "success": true,
+    "level": 3,
+    "level_name": "standard_user"
+  },
+  "error": null
+}
+```
+
+错误返回（示例，level 非法）：
+
+```json
+{
+  "id": 29,
+  "result": null,
+  "error": "level 仅支持 0(admin)/1(system)/2(trusted_installer)/3(standard_user)"
+}
+```
+
+错误返回（示例，PID 非法）：
+
+```json
+{
+  "id": 29,
+  "result": null,
+  "error": "process_id 不合法，不能为 0 或 4"
+}
+```
+
+错误返回（示例，驱动未连接）：
+
+```json
+{
+  "id": 29,
+  "result": null,
+  "error": "驱动未加载"
+}
+```
+
+常见错误文本：
+
+- `level 仅支持 0(admin)/1(system)/2(trusted_installer)/3(standard_user)`
+- `process_id 不合法，不能为 0 或 4`
+- `驱动未加载`
+- `提权进程失败: ...`
+
 ---
 
 ## 4. 开发建议

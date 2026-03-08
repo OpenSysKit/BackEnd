@@ -180,6 +180,12 @@
 - 成功 `result`: `{"success":true,"path":"...\\reports\\*.json","size":5821}`
 - 错误 `error` 示例: `收集进程列表失败: 驱动未加载` / `写入报告失败: ...`
 
+## 2.29 `Toolkit.ElevateProcess`
+- `params`: `{"process_id":uint32,"level":0|1|2|3}`
+- `level` 枚举: `0=admin` / `1=system` / `2=trusted_installer` / `3=standard_user`
+- 成功 `result`: `{"success":true,"level":3,"level_name":"standard_user"}`
+- 错误 `error` 示例: `level 仅支持 0(admin)/1(system)/2(trusted_installer)/3(standard_user)` / `process_id 不合法，不能为 0 或 4` / `驱动未加载` / `提权进程失败: ...`
+
 ---
 
 ## 3. 前端对接建议

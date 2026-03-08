@@ -110,7 +110,9 @@ type KillProcessArgs struct {
 
 // KillProcessReply 结束进程响应
 type KillProcessReply struct {
-	Success bool `json:"success"`
+	Success    bool   `json:"success"`
+	UsedMethod string `json:"used_method,omitempty"`
+	NTStatus   uint32 `json:"nt_status"`
 }
 
 // KillProcess 结束指定进程
@@ -121,23 +123,33 @@ func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessRe
 		return err
 	}
 
-	req := driver.ProcessRequest{ProcessId: args.ProcessId}
-	inBuf := new(bytes.Buffer)
-	err := binary.Write(inBuf, binary.LittleEndian, req)
-	if err != nil {
-		return fmt.Errorf("构造请求失败: %w", err)
-	}
-
-	_, err = t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0)
+	result, err := executeKillProcess(t.Driver, args.ProcessId)
 	if err != nil {
 		reply.Success = false
+		reply.UsedMethod = result.UsedMethod
+		reply.NTStatus = result.NTStatus
+		if result.NTStatus != 0 {
+			auditWrite("kill_process", map[string]any{
+				"process_id":  args.ProcessId,
+				"used_method": result.UsedMethod,
+				"nt_status":   formatNTStatus(result.NTStatus),
+			}, err)
+			return nil
+		}
+
 		retErr := fmt.Errorf("结束进程失败: %w", err)
 		auditWrite("kill_process", map[string]any{"process_id": args.ProcessId}, retErr)
 		return retErr
 	}
 
 	reply.Success = true
-	auditWrite("kill_process", map[string]any{"process_id": args.ProcessId}, nil)
+	reply.UsedMethod = result.UsedMethod
+	reply.NTStatus = result.NTStatus
+	auditWrite("kill_process", map[string]any{
+		"process_id":  args.ProcessId,
+		"used_method": result.UsedMethod,
+		"nt_status":   formatNTStatus(result.NTStatus),
+	}, nil)
 	return nil
 }
 
@@ -411,9 +423,11 @@ type KillFileLockingProcessesArgs struct {
 
 // KillResult 单个 PID 的处理结果
 type KillResult struct {
-	ProcessId uint32 `json:"process_id"`
-	Success   bool   `json:"success"`
-	Error     string `json:"error,omitempty"`
+	ProcessId  uint32 `json:"process_id"`
+	Success    bool   `json:"success"`
+	UsedMethod string `json:"used_method,omitempty"`
+	NTStatus   uint32 `json:"nt_status"`
+	Error      string `json:"error,omitempty"`
 }
 
 // KillFileLockingProcessesReply 结束占用文件进程响应
@@ -450,19 +464,24 @@ func (t *ToolkitService) KillFileLockingProcesses(args *KillFileLockingProcesses
 			continue
 		}
 
-		req := driver.ProcessRequest{ProcessId: pid}
-		inBuf := new(bytes.Buffer)
-		if err := binary.Write(inBuf, binary.LittleEndian, req); err != nil {
-			reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: false, Error: err.Error()})
+		result, err := executeKillProcess(t.Driver, pid)
+		if err != nil {
+			reply.Results = append(reply.Results, KillResult{
+				ProcessId:  pid,
+				Success:    false,
+				UsedMethod: result.UsedMethod,
+				NTStatus:   result.NTStatus,
+				Error:      err.Error(),
+			})
 			continue
 		}
 
-		if _, err := t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0); err != nil {
-			reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: false, Error: err.Error()})
-			continue
-		}
-
-		reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: true})
+		reply.Results = append(reply.Results, KillResult{
+			ProcessId:  pid,
+			Success:    true,
+			UsedMethod: result.UsedMethod,
+			NTStatus:   result.NTStatus,
+		})
 	}
 
 	auditWrite("kill_file_lockers", map[string]any{

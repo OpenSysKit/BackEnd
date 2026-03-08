@@ -83,21 +83,15 @@ func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillP
 	reply.Results = make([]KillResult, 0, len(order))
 
 	for _, pid := range order {
-		req := driver.ProcessRequest{ProcessId: pid}
-		inBuf := new(bytes.Buffer)
-		if err = binary.Write(inBuf, binary.LittleEndian, req); err != nil {
-			kr := KillResult{ProcessId: pid, Success: false, Error: err.Error()}
-			reply.Results = append(reply.Results, kr)
-			if args.StrictErrors {
-				retErr := fmt.Errorf("构造请求失败(pid=%d): %w", pid, err)
-				auditWrite("kill_process_tree", map[string]any{"process_id": args.ProcessId, "failed_pid": pid}, retErr)
-				return retErr
+		result, err := executeKillProcess(t.Driver, pid)
+		if err != nil {
+			kr := KillResult{
+				ProcessId:  pid,
+				Success:    false,
+				UsedMethod: result.UsedMethod,
+				NTStatus:   result.NTStatus,
+				Error:      err.Error(),
 			}
-			continue
-		}
-
-		if _, err = t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0); err != nil {
-			kr := KillResult{ProcessId: pid, Success: false, Error: err.Error()}
 			reply.Results = append(reply.Results, kr)
 			if args.StrictErrors {
 				retErr := fmt.Errorf("结束子树进程失败(pid=%d): %w", pid, err)
@@ -107,7 +101,12 @@ func (t *ToolkitService) KillProcessTree(args *KillProcessTreeArgs, reply *KillP
 			continue
 		}
 
-		reply.Results = append(reply.Results, KillResult{ProcessId: pid, Success: true})
+		reply.Results = append(reply.Results, KillResult{
+			ProcessId:  pid,
+			Success:    true,
+			UsedMethod: result.UsedMethod,
+			NTStatus:   result.NTStatus,
+		})
 	}
 
 	auditWrite("kill_process_tree", map[string]any{
@@ -281,10 +280,12 @@ type PortConflictConnection struct {
 
 // PortConflictActionResult 单个端口处置结果
 type PortConflictActionResult struct {
-	ProcessId uint32 `json:"process_id"`
-	Method    string `json:"method"`
-	Success   bool   `json:"success"`
-	Error     string `json:"error,omitempty"`
+	ProcessId  uint32 `json:"process_id"`
+	Method     string `json:"method"`
+	Success    bool   `json:"success"`
+	UsedMethod string `json:"used_method,omitempty"`
+	NTStatus   uint32 `json:"nt_status"`
+	Error      string `json:"error,omitempty"`
 }
 
 // ResolvePortConflictReply 端口冲突处置响应
@@ -383,21 +384,18 @@ func (t *ToolkitService) ResolvePortConflict(args *ResolvePortConflictArgs, repl
 				continue
 			}
 
-			req := driver.ProcessRequest{ProcessId: pid}
-			inBuf := new(bytes.Buffer)
-			if err = binary.Write(inBuf, binary.LittleEndian, req); err != nil {
+			result, err := executeKillProcess(t.Driver, pid)
+			if err != nil {
 				res.Success = false
 				res.Error = err.Error()
-				reply.Results = append(reply.Results, res)
-				continue
-			}
-			if _, err = t.Driver.IoControl(driver.IOCTL_KILL_PROCESS, inBuf.Bytes(), 0); err != nil {
-				res.Success = false
-				res.Error = err.Error()
+				res.UsedMethod = result.UsedMethod
+				res.NTStatus = result.NTStatus
 				reply.Results = append(reply.Results, res)
 				continue
 			}
 			res.Success = true
+			res.UsedMethod = result.UsedMethod
+			res.NTStatus = result.NTStatus
 			reply.Results = append(reply.Results, res)
 		}
 	case "disconnect":

@@ -30,9 +30,25 @@ var (
 	IOCTL_WINDRIVE_SET_PROTECT_POLICY = CTL_CODE(deviceTypeOpenSysKit, 0x809, methodBuffered, fileAnyAccess)
 )
 
+const (
+	ProcessKillResultVersion uint32 = 1
+
+	ProcessKillMethodNone uint32 = 0
+	ProcessKillMethodPsp  uint32 = 1
+	ProcessKillMethodZw   uint32 = 2
+)
+
 // ProcessRequest 对应内核中 PROCESS_REQUEST 结构体
 type ProcessRequest struct {
 	ProcessId uint32
+}
+
+// ProcessKillResult 对应内核中 PROCESS_KILL_RESULT 结构体。
+type ProcessKillResult struct {
+	Version         uint32
+	OperationStatus uint32
+	Method          uint32
+	Reserved        uint32
 }
 
 // ProcessInfo 对应内核中 PROCESS_INFO 结构体

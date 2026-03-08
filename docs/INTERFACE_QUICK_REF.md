@@ -1,6 +1,6 @@
 # OpenSysKit BackEnd 接口速查
 
-更新时间：2026-03-05  
+更新时间：2026-03-08  
 适用范围：`BackEnd` 当前 `main` 分支
 
 - 完整版（含完整 JSON 示例）：[INTERFACE_SPEC.md](./INTERFACE_SPEC.md)
@@ -28,7 +28,7 @@
 {"id": 1, "result": null, "error": "错误字符串"}
 ```
 
-说明：`error` 是字符串，不是 `{code,message}`。
+说明：`error` 是字符串，不是 `{code,message}`；流式客户端应同时用 `id` 对齐请求与响应。
 
 ---
 
@@ -46,8 +46,9 @@
 
 ## 2.3 `Toolkit.KillProcess`
 - `params`: `{"process_id":uint32}`
-- 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `驱动未加载` / `结束进程失败: ...`
+- 成功 `result`: `{"success":true,"used_method":"psp|zw","nt_status":0}`
+- 内核拒绝时 `result`: `{"success":false,"used_method":"none|psp|zw","nt_status":<ntstatus>}`
+- 错误 `error` 示例: `驱动未加载` / `结束进程失败: 驱动返回的 Kill 结果过小: ...`
 
 ## 2.4 `Toolkit.ProtectProcess`
 - `params`: `{"process_id":uint32}`
@@ -72,11 +73,11 @@
 ## 2.8 `Toolkit.DeleteFileKernel`
 - `params`: `{"path":"文件路径"}`
 - 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `path 不能为空` / `驱动未加载` / `内核删除文件失败: ...`
+- 错误 `error` 示例: `path 不能为空` / `驱动未加载` / `路径编码失败: ...` / `路径过长，最大支持 N UTF-16 字符` / `内核删除文件失败: ...`
 
 ## 2.9 `Toolkit.KillFileLockingProcesses`
 - `params`: `{"path":"文件路径"}`
-- 成功 `result`: `{"found_pids":[...],"results":[{process_id,success,error?}]}`
+- 成功 `result`: `{"found_pids":[...],"results":[{process_id,success,used_method?,nt_status,error?}]}`
 - 错误 `error` 示例: `path 不能为空` / `驱动未加载` / `查询占用进程失败: ...`
 - 注意: 该接口即使部分 PID 失败，也可能 `error=null`，需检查 `results[].success`。
 
@@ -102,7 +103,7 @@
 
 ## 2.14 `Toolkit.KillProcessTree`
 - `params`: `{"process_id":uint32,"include_root":bool,"leaves_first":bool,"strict_errors":bool}`
-- 成功 `result`: `{"target_process_id":...,"ordered_pids":[...],"results":[{process_id,success,error?}]}`
+- 成功 `result`: `{"target_process_id":...,"ordered_pids":[...],"results":[{process_id,success,used_method?,nt_status,error?}]}`
 - 错误 `error` 示例: `process_id must be > 0` / `驱动未加载` / `结束子树进程失败(pid=...): ...`
 - 注意: `strict_errors=false` 时，部分失败也可整体成功。
 
@@ -124,9 +125,10 @@
 
 ## 2.18 `Toolkit.ResolvePortConflict`
 - `params`: `{"port":uint16,"protocol":"all|tcp|udp","action":"kill|disconnect"}`
-- 成功 `result`: `{"port":...,"protocol":"...","action":"...","summary":"...","matches":[...],"results":[{process_id,method,success,error?}]}`
-- 错误 `error` 示例: `port must be > 0` / `action 仅支持 kill/disconnect` / `disconnect 暂仅支持 TCP`
-- 注意: `action=kill` 时，高风险系统进程会在 `results` 中返回 `success=false`，但整体仍可能成功。
+- 成功 `result`: `{"port":...,"protocol":"...","action":"...","summary":"...","matches":[...],"results":[{process_id,method,success,used_method?,nt_status,error?}]}`
+- `results[].method` 当前枚举：`kill_process` / `disconnect_tcp`
+- 错误 `error` 示例: `port must be > 0` / `protocol 仅支持 all/tcp/udp` / `action 仅支持 kill/disconnect` / `驱动未加载，无法执行 kill` / `disconnect 暂仅支持 TCP` / `断开 TCP 连接失败: ...`
+- 注意: `action=kill` 时，高风险系统进程会在 `results` 中返回 `success=false,error="高风险系统进程，拒绝结束"`，但整体仍可能成功。
 
 ## 2.19 `Toolkit.SuspendThread`
 - `params`: `{"thread_id":uint32}`
@@ -161,7 +163,7 @@
 ## 2.25 `Toolkit.SetServiceStartType`
 - `params`: `{"name":"服务名","start_type":"auto|manual|disabled"}`
 - 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `name 不能为空` / `修改服务启动类型失败: ...`
+- 错误 `error` 示例: `name 不能为空` / `start_type 仅支持 auto/manual/disabled` / `修改服务启动类型失败: ...`
 
 ## 2.26 `Toolkit.ApplyProtectTemplate`
 - `params`: `{"template":"low|medium|high"}`（空值默认 `medium`）
@@ -182,6 +184,6 @@
 
 ## 3. 前端对接建议
 
-- 每次请求使用唯一 `id`。
+- 每次请求使用唯一 `id`，并校验响应 `id` 与请求一致。
 - 对所有写操作接口，不只看顶层 `error`，还要看 `result` 内的 `success` 或 `results[]`。
 - 统一把 `error` 当纯文本提示。

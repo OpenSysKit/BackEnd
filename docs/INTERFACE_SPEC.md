@@ -1,6 +1,6 @@
 # OpenSysKit BackEnd 接口文档（与当前代码一致）
 
-更新时间：2026-03-05  
+更新时间：2026-03-08  
 适用范围：`BackEnd` 当前 `main` 分支
 
 - 速查版： [INTERFACE_QUICK_REF.md](./INTERFACE_QUICK_REF.md)
@@ -59,6 +59,7 @@
 
 - 该实现里 `error` 是字符串，不是 `{code,message}` 对象。
 - `error` 文本通常是方法里 `fmt.Errorf(...)` 的结果，可能包含底层错误拼接。
+- 流式客户端除生成唯一 `id` 外，还应校验响应里的 `id` 与请求一致。
 
 ---
 
@@ -138,18 +139,36 @@
 ```json
 {
   "id": 3,
-  "result": {"success": true},
+  "result": {
+    "success": true,
+    "used_method": "psp",
+    "nt_status": 0
+  },
   "error": null
 }
 ```
 
-错误返回（示例）：
+内核拒绝结束时（仍返回 `result`，由前端检查 `success`）：
+
+```json
+{
+  "id": 3,
+  "result": {
+    "success": false,
+    "used_method": "zw",
+    "nt_status": 3221225506
+  },
+  "error": null
+}
+```
+
+错误返回（示例，仅限协议/驱动异常）：
 
 ```json
 {
   "id": 3,
   "result": null,
-  "error": "结束进程失败: ..."
+  "error": "结束进程失败: 驱动返回的 Kill 结果过小: ..."
 }
 ```
 
@@ -323,8 +342,8 @@
   "result": {
     "found_pids": [5388, 9524],
     "results": [
-      {"process_id": 5388, "success": true},
-      {"process_id": 9524, "success": false, "error": "Access is denied."}
+      {"process_id": 5388, "success": true, "used_method": "psp", "nt_status": 0},
+      {"process_id": 9524, "success": false, "used_method": "zw", "nt_status": 3221225506, "error": "内核返回 NTSTATUS=0xC0000022 (used_method=zw)"}
     ]
   },
   "error": null
@@ -513,8 +532,8 @@
     "target_process_id": 5388,
     "ordered_pids": [9524, 5388],
     "results": [
-      {"process_id": 9524, "success": true},
-      {"process_id": 5388, "success": false, "error": "Access is denied."}
+      {"process_id": 9524, "success": true, "used_method": "psp", "nt_status": 0},
+      {"process_id": 5388, "success": false, "used_method": "zw", "nt_status": 3221225506, "error": "内核返回 NTSTATUS=0xC0000022 (used_method=zw)"}
     ]
   },
   "error": null
@@ -662,7 +681,7 @@
     "port": 8080,
     "protocol": "all",
     "action": "kill",
-    "summary": "匹配连接 2 条，成功处置 1 项",
+    "summary": "匹配连接 1 条，成功处置 1 项",
     "matches": [
       {
         "protocol": "tcp",
@@ -676,7 +695,7 @@
       }
     ],
     "results": [
-      {"process_id": 1234, "method": "kill_process", "success": true}
+      {"process_id": 1234, "method": "kill_process", "success": true, "used_method": "psp", "nt_status": 0}
     ]
   },
   "error": null
@@ -693,13 +712,20 @@
 }
 ```
 
+补充说明：
+
+- `results[].method` 当前枚举：`kill_process` / `disconnect_tcp`
+- `action=kill` 时，高风险系统进程会在 `results` 中返回 `success=false`，并附带 `error="高风险系统进程，拒绝结束"`
+
 常见错误文本：
 
 - `port must be > 0`
 - `protocol 仅支持 all/tcp/udp`
 - `action 仅支持 kill/disconnect`
+- `枚举网络连接失败: ...`
 - `驱动未加载，无法执行 kill`
 - `disconnect 暂仅支持 TCP`
+- `断开 TCP 连接失败: ...`
 
 ## 3.19 `Toolkit.SuspendThread`
 
@@ -902,6 +928,12 @@
 }
 ```
 
+常见错误文本：
+
+- `name 不能为空`
+- `start_type 仅支持 auto/manual/disabled`
+- `修改服务启动类型失败: ...`
+
 ## 3.26 `Toolkit.ApplyProtectTemplate`
 
 参数：`{"template": "low|medium|high"}`（空值默认 `medium`）
@@ -1014,6 +1046,6 @@
 
 ## 4. 开发建议
 
-- 每次请求都带独立 `id`，便于并发对齐响应。
+- 每次请求都带独立 `id`，并校验响应 `id` 与请求一致，便于并发对齐响应。
 - 对 `error != null` 直接按字符串展示，不要按 `error.code` 解析（本实现无 code 字段）。
 - 对“部分失败但整体成功”的接口（`KillFileLockingProcesses`、`KillProcessTree`、`ResolvePortConflict`），要额外检查 `result.results` 里的每一项 `success`。

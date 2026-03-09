@@ -62,7 +62,7 @@ jobs:
     needs: check
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        arch: [amd64]
       fail-fast: false
     runs-on: windows-latest
     steps:
@@ -79,7 +79,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $driverArch = if ("${{ matrix.arch }}" -eq "arm64") { "ARM64" } else { "x64" }
+          $driverArch = "x64"
           $release = gh release view --repo OpenSysKit/Driver --json tagName,assets | ConvertFrom-Json
           Write-Host "驱动版本: $($release.tagName)"
           New-Item -ItemType Directory -Force -Path bin/driver | Out-Null

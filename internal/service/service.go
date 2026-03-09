@@ -607,7 +607,15 @@ func (t *ToolkitService) EnumProcessModules(args *EnumProcessModulesArgs, reply 
 		return fmt.Errorf("process_id must be > 0")
 	}
 
-	modules, err := enumProcessModules(args.ProcessId)
+	var (
+		modules []ProcessModuleModel
+		err     error
+	)
+	if t.Driver != nil {
+		modules, err = enumProcessModulesViaDriver(t.Driver, args.ProcessId)
+	} else {
+		modules, err = enumProcessModules(args.ProcessId)
+	}
 	if err != nil {
 		return fmt.Errorf("枚举进程模块失败: %w", err)
 	}
@@ -650,7 +658,15 @@ func (t *ToolkitService) EnumNetworkConnections(args *EnumNetworkConnectionsArgs
 		return fmt.Errorf("protocol 仅支持 all/tcp/udp")
 	}
 
-	connections, err := enumNetworkConnections(protocol)
+	var (
+		connections []NetworkConnectionModel
+		err         error
+	)
+	if t.Driver != nil {
+		connections, err = enumNetworkConnectionsViaDriver(t.Driver, protocol)
+	} else {
+		connections, err = enumNetworkConnections(protocol)
+	}
 	if err != nil {
 		return fmt.Errorf("枚举网络连接失败: %w", err)
 	}
@@ -724,32 +740,61 @@ func (t *ToolkitService) HealthCheck(_ *HealthCheckArgs, reply *HealthCheckReply
 		})
 	}
 
-	if _, err := enumProcessModules(uint32(os.Getpid())); err != nil {
-		components = append(components, HealthComponent{
-			Name:    "module_enumeration",
-			Status:  "degraded",
-			Message: err.Error(),
-		})
+	if t.Driver != nil {
+		if _, err := enumProcessModulesViaDriver(t.Driver, uint32(os.Getpid())); err != nil {
+			components = append(components, HealthComponent{
+				Name:    "module_enumeration",
+				Status:  "degraded",
+				Message: err.Error(),
+			})
+		} else {
+			components = append(components, HealthComponent{
+				Name:    "module_enumeration",
+				Status:  "ok",
+				Message: "driver ioctl enum_modules ok",
+			})
+		}
+		if _, err := enumNetworkConnectionsViaDriver(t.Driver, "all"); err != nil {
+			components = append(components, HealthComponent{
+				Name:    "network_enumeration",
+				Status:  "degraded",
+				Message: err.Error(),
+			})
+		} else {
+			components = append(components, HealthComponent{
+				Name:    "network_enumeration",
+				Status:  "ok",
+				Message: "driver ioctl enum_connections ok",
+			})
+		}
 	} else {
-		components = append(components, HealthComponent{
-			Name:    "module_enumeration",
-			Status:  "ok",
-			Message: "toolhelp snapshot ok",
-		})
-	}
+		if _, err := enumProcessModules(uint32(os.Getpid())); err != nil {
+			components = append(components, HealthComponent{
+				Name:    "module_enumeration",
+				Status:  "degraded",
+				Message: err.Error(),
+			})
+		} else {
+			components = append(components, HealthComponent{
+				Name:    "module_enumeration",
+				Status:  "ok",
+				Message: "toolhelp snapshot ok",
+			})
+		}
 
-	if _, err := enumNetworkConnections("all"); err != nil {
-		components = append(components, HealthComponent{
-			Name:    "network_enumeration",
-			Status:  "degraded",
-			Message: err.Error(),
-		})
-	} else {
-		components = append(components, HealthComponent{
-			Name:    "network_enumeration",
-			Status:  "ok",
-			Message: "iphlpapi query ok",
-		})
+		if _, err := enumNetworkConnections("all"); err != nil {
+			components = append(components, HealthComponent{
+				Name:    "network_enumeration",
+				Status:  "degraded",
+				Message: err.Error(),
+			})
+		} else {
+			components = append(components, HealthComponent{
+				Name:    "network_enumeration",
+				Status:  "ok",
+				Message: "iphlpapi query ok",
+			})
+		}
 	}
 
 	overall := "ok"

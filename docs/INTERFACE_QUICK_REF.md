@@ -85,11 +85,13 @@
 - `params`: `{"process_id":uint32}`
 - 成功 `result`: `{"process_id":5388,"modules":[{process_id,module_name,base_address,size,path}]}`
 - 错误 `error` 示例: `process_id must be > 0` / `枚举进程模块失败: ...`
+- 说明: 驱动已连接时优先走 `IOCTL_ENUM_MODULES`；未连接时回退现有用户态枚举。
 
 ## 2.11 `Toolkit.EnumNetworkConnections`
 - `params`: `{"protocol":"all|tcp|udp"}`（空值默认 `all`）
 - 成功 `result`: `{"protocol":"all","connections":[{protocol,local_ip,local_port,remote_ip,remote_port,state,process_id,process_name}]}`
 - 错误 `error` 示例: `protocol 仅支持 all/tcp/udp` / `枚举网络连接失败: ...`
+- 说明: 驱动已连接时优先走 `IOCTL_ENUM_CONNECTIONS`；未连接时回退 `iphlpapi`。
 
 ## 2.12 `Toolkit.HealthCheck`
 - `params`: `{}`
@@ -109,19 +111,22 @@
 
 ## 2.15 `Toolkit.EnumThreads`
 - `params`: `{"process_id":uint32}`
-- 成功 `result`: `{"process_id":...,"threads":[{thread_id,owner_process_id,base_priority,delta_priority}]}`
+- 成功 `result`: `{"process_id":...,"threads":[{thread_id,owner_process_id,base_priority,delta_priority,start_address,is_terminating}]}`
 - 错误 `error` 示例: `process_id must be > 0` / `枚举线程失败: ...`
+- 说明: 驱动已连接时优先走 `IOCTL_ENUM_THREADS`；未连接时回退用户态线程枚举。
 
 ## 2.16 `Toolkit.EnumHandles`
 - `params`: `{"process_id":uint32}`
 - 成功 `result`: `{"process_id":...,"total_handles":N,"types":[{type_index,type_name,count}]}`
 - 错误 `error` 示例: `process_id must be > 0` / `枚举句柄失败: ...`
+- 说明: 驱动已连接时优先走 `IOCTL_ENUM_HANDLES`，后端再聚合出类型统计；未连接时回退旧实现。
 
 ## 2.17 `Toolkit.WatchHandleStats`
 - `params`: `{"process_id":uint32,"sample_count":int,"interval_ms":int,"top_n":int}`
 - 成功 `result`: `{"process_id":...,"samples":[{timestamp,total_handles,top_types:[...]}]}`
 - 错误 `error` 示例: `process_id must be > 0` / `句柄采样失败(第 1 次): ...`
 - 约束: `sample_count 1~60`、`interval_ms 500~10000`、`top_n 1~20`。
+- 说明: 驱动已连接时使用 `IOCTL_ENUM_HANDLES` 做采样；未连接时回退旧实现。
 
 ## 2.18 `Toolkit.ResolvePortConflict`
 - `params`: `{"port":uint16,"protocol":"all|tcp|udp","action":"kill|disconnect"}`
@@ -185,6 +190,52 @@
 - `level` 枚举: `0=admin` / `1=system` / `2=trusted_installer` / `3=standard_user`
 - 成功 `result`: `{"success":true,"level":3,"level_name":"standard_user"}`
 - 错误 `error` 示例: `level 仅支持 0(admin)/1(system)/2(trusted_installer)/3(standard_user)` / `process_id 不合法，不能为 0 或 4` / `驱动未加载` / `提权进程失败: ...`
+
+## 2.30 `Toolkit.FreezeProcess`
+- `params`: `{"process_id":uint32}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `构造请求失败: ...` / `冻结进程失败: ...`
+
+## 2.31 `Toolkit.UnfreezeProcess`
+- `params`: `{"process_id":uint32}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `构造请求失败: ...` / `解冻进程失败: ...`
+
+## 2.32 `Toolkit.HideProcess`
+- `params`: `{"process_id":uint32}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `构造请求失败: ...` / `隐藏进程失败: ...`
+
+## 2.33 `Toolkit.UnhideProcess`
+- `params`: `{"process_id":uint32}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `构造请求失败: ...` / `恢复隐藏进程失败: ...`
+
+## 2.34 `Toolkit.ListHandles`
+- `params`: `{"process_id":uint32}`（`0` 表示全系统）
+- 成功 `result`: `{"process_id":0,"handles":[{process_id,handle,object_type_index,granted_access,object_address,type_name,object_name}]}`
+- 错误 `error` 示例: `驱动未加载` / `枚举句柄明细失败: ...`
+
+## 2.35 `Toolkit.EnumKernelModules`
+- `params`: `{}`
+- 成功 `result`: `{"modules":[{base_address,size,module_name,path}]}`
+- 错误 `error` 示例: `驱动未加载` / `枚举内核模块失败: ...`
+
+## 2.36 `Toolkit.CloseHandle`
+- `params`: `{"process_id":uint32,"handle":uint64}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `构造请求失败: ...` / `关闭句柄失败: ...`
+
+## 2.37 `Toolkit.UnloadDriver`
+- `params`: `{"service_name":"驱动服务名或 *.sys"}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `service_name 不能为空` / `卸载驱动失败: ...`
+
+## 2.38 `Toolkit.InjectDll`
+- `params`: `{"process_id":uint32,"dll_path":"C:\\path\\to\\x.dll"}`
+- 成功 `result`: `{"success":true}`
+- 错误 `error` 示例: `驱动未加载` / `dll_path 不能为空` / `注入 DLL 失败: ...`
+- 注意: 当前驱动分发层已显式禁用该 IOCTL，通常会返回 `STATUS_NOT_SUPPORTED`。
 
 ---
 

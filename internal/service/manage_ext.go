@@ -127,6 +127,8 @@ type ThreadInfoModel struct {
 	OwnerProcess  uint32 `json:"owner_process_id"`
 	BasePriority  int32  `json:"base_priority"`
 	DeltaPriority int32  `json:"delta_priority"`
+	StartAddress  uint64 `json:"start_address"`
+	IsTerminating bool   `json:"is_terminating"`
 }
 
 // EnumThreadsReply 枚举线程响应
@@ -140,10 +142,20 @@ func (t *ToolkitService) EnumThreads(args *EnumThreadsArgs, reply *EnumThreadsRe
 	if args.ProcessId == 0 {
 		return fmt.Errorf("process_id must be > 0")
 	}
-	threads, err := enumThreadsByProcess(args.ProcessId)
+
+	var (
+		threads []ThreadInfoModel
+		err     error
+	)
+	if t.Driver != nil {
+		threads, err = enumThreadsViaDriver(t.Driver, args.ProcessId)
+	} else {
+		threads, err = enumThreadsByProcess(args.ProcessId)
+	}
 	if err != nil {
 		return fmt.Errorf("枚举线程失败: %w", err)
 	}
+
 	reply.ProcessId = args.ProcessId
 	reply.Threads = threads
 	return nil
@@ -173,10 +185,26 @@ func (t *ToolkitService) EnumHandles(args *EnumHandlesArgs, reply *EnumHandlesRe
 	if args.ProcessId == 0 {
 		return fmt.Errorf("process_id must be > 0")
 	}
-	total, stats, err := enumHandleStatsByPID(args.ProcessId)
+
+	var (
+		total uint32
+		stats []HandleTypeStat
+		err   error
+	)
+	if t.Driver != nil {
+		entries, listErr := listHandlesViaDriver(t.Driver, args.ProcessId)
+		if listErr != nil {
+			err = listErr
+		} else {
+			total, stats = buildHandleStats(entries)
+		}
+	} else {
+		total, stats, err = enumHandleStatsByPID(args.ProcessId)
+	}
 	if err != nil {
 		return fmt.Errorf("枚举句柄失败: %w", err)
 	}
+
 	reply.ProcessId = args.ProcessId
 	reply.TotalHandles = total
 	reply.Types = stats
@@ -237,10 +265,22 @@ func (t *ToolkitService) WatchHandleStats(args *WatchHandleStatsArgs, reply *Wat
 		topN = 20
 	}
 
+	sample := func() (uint32, []HandleTypeStat, error) {
+		if t.Driver != nil {
+			entries, err := listHandlesViaDriver(t.Driver, args.ProcessId)
+			if err != nil {
+				return 0, nil, err
+			}
+			total, stats := buildHandleStats(entries)
+			return total, stats, nil
+		}
+		return enumHandleStatsByPID(args.ProcessId)
+	}
+
 	reply.ProcessId = args.ProcessId
 	reply.Samples = make([]HandleSampleModel, 0, sampleCount)
 	for i := 0; i < sampleCount; i++ {
-		total, stats, err := enumHandleStatsByPID(args.ProcessId)
+		total, stats, err := sample()
 		if err != nil {
 			return fmt.Errorf("句柄采样失败(第 %d 次): %w", i+1, err)
 		}

@@ -395,6 +395,8 @@
 }
 ```
 
+说明：当 `opensyskit_driver` 已连接时，后端优先调用驱动 `IOCTL_ENUM_MODULES`；驱动未连接时才回退用户态模块枚举。
+
 ## 3.11 `Toolkit.EnumNetworkConnections`
 
 参数：`{"protocol": "all|tcp|udp"}`（空值默认 `all`）
@@ -432,6 +434,8 @@
   "error": "protocol 仅支持 all/tcp/udp"
 }
 ```
+
+说明：当 `opensyskit_driver` 已连接时，后端优先调用驱动 `IOCTL_ENUM_CONNECTIONS`；驱动未连接时回退 `iphlpapi` 实现。
 
 ## 3.12 `Toolkit.HealthCheck`
 
@@ -566,7 +570,9 @@
         "thread_id": 12000,
         "owner_process_id": 5388,
         "base_priority": 8,
-        "delta_priority": 0
+        "delta_priority": 0,
+        "start_address": 140709826207744,
+        "is_terminating": false
       }
     ]
   },
@@ -583,6 +589,8 @@
   "error": "process_id must be > 0"
 }
 ```
+
+说明：当 `opensyskit_driver` 已连接时，后端优先调用驱动 `IOCTL_ENUM_THREADS`；驱动未连接时回退用户态线程枚举。
 
 ## 3.16 `Toolkit.EnumHandles`
 
@@ -613,6 +621,8 @@
   "error": "枚举句柄失败: ..."
 }
 ```
+
+说明：当 `opensyskit_driver` 已连接时，后端优先调用驱动 `IOCTL_ENUM_HANDLES` 获取明细，再在服务层聚合 `types` 统计；驱动未连接时回退旧实现。
 
 ## 3.17 `Toolkit.WatchHandleStats`
 
@@ -663,6 +673,8 @@
   "error": "句柄采样失败(第 1 次): ..."
 }
 ```
+
+说明：当 `opensyskit_driver` 已连接时，采样底层走 `IOCTL_ENUM_HANDLES`；驱动未连接时回退旧实现。
 
 ## 3.18 `Toolkit.ResolvePortConflict`
 
@@ -1107,6 +1119,348 @@
 - `process_id 不合法，不能为 0 或 4`
 - `驱动未加载`
 - `提权进程失败: ...`
+
+## 3.30 `Toolkit.FreezeProcess`
+
+参数：
+
+```json
+{"process_id": 5388}
+```
+
+成功返回：
+
+```json
+{
+  "id": 30,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 30,
+  "result": null,
+  "error": "冻结进程失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `构造请求失败: ...`
+- `冻结进程失败: ...`
+
+## 3.31 `Toolkit.UnfreezeProcess`
+
+参数：
+
+```json
+{"process_id": 5388}
+```
+
+成功返回：
+
+```json
+{
+  "id": 31,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 31,
+  "result": null,
+  "error": "解冻进程失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `构造请求失败: ...`
+- `解冻进程失败: ...`
+
+## 3.32 `Toolkit.HideProcess`
+
+参数：
+
+```json
+{"process_id": 5388}
+```
+
+成功返回：
+
+```json
+{
+  "id": 32,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 32,
+  "result": null,
+  "error": "隐藏进程失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `构造请求失败: ...`
+- `隐藏进程失败: ...`
+
+## 3.33 `Toolkit.UnhideProcess`
+
+参数：
+
+```json
+{"process_id": 5388}
+```
+
+成功返回：
+
+```json
+{
+  "id": 33,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 33,
+  "result": null,
+  "error": "恢复隐藏进程失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `构造请求失败: ...`
+- `恢复隐藏进程失败: ...`
+
+## 3.34 `Toolkit.ListHandles`
+
+参数：
+
+```json
+{"process_id": 0}
+```
+
+说明：`process_id=0` 表示返回全系统句柄明细。
+
+成功返回：
+
+```json
+{
+  "id": 34,
+  "result": {
+    "process_id": 0,
+    "handles": [
+      {
+        "process_id": 5388,
+        "handle": 292,
+        "object_type_index": 37,
+        "granted_access": 1180063,
+        "object_address": 18446603340516143104,
+        "type_name": "TypeIndex#37",
+        "object_name": "\\Device\\HarddiskVolume3\\Temp\\demo.txt"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 34,
+  "result": null,
+  "error": "枚举句柄明细失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `枚举句柄明细失败: ...`
+
+## 3.35 `Toolkit.EnumKernelModules`
+
+参数：`{}`
+
+成功返回：
+
+```json
+{
+  "id": 35,
+  "result": {
+    "modules": [
+      {
+        "base_address": 18446615496132390912,
+        "size": 126976,
+        "module_name": "OpenSysKit.sys",
+        "path": "\\SystemRoot\\System32\\drivers\\OpenSysKit.sys"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 35,
+  "result": null,
+  "error": "枚举内核模块失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `枚举内核模块失败: ...`
+
+## 3.36 `Toolkit.CloseHandle`
+
+参数：
+
+```json
+{"process_id": 5388, "handle": 292}
+```
+
+成功返回：
+
+```json
+{
+  "id": 36,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 36,
+  "result": null,
+  "error": "关闭句柄失败: ..."
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `构造请求失败: ...`
+- `关闭句柄失败: ...`
+
+## 3.37 `Toolkit.UnloadDriver`
+
+参数：
+
+```json
+{"service_name": "BadDriver"}
+```
+
+成功返回：
+
+```json
+{
+  "id": 37,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 37,
+  "result": null,
+  "error": "service_name 不能为空"
+}
+```
+
+常见错误文本：
+
+- `驱动未加载`
+- `service_name 不能为空`
+- `构造请求失败: ...`
+- `卸载驱动失败: ...`
+
+## 3.38 `Toolkit.InjectDll`
+
+参数：
+
+```json
+{"process_id": 5388, "dll_path": "C:\\Tools\\payload.dll"}
+```
+
+成功返回：
+
+```json
+{
+  "id": 38,
+  "result": {
+    "success": true
+  },
+  "error": null
+}
+```
+
+错误返回（示例）：
+
+```json
+{
+  "id": 38,
+  "result": null,
+  "error": "注入 DLL 失败: ..."
+}
+```
+
+说明：后端已暴露该 RPC，但截至 2026-03-09 当前驱动分发层对 `IOCTL_INJECT_DLL` 直接返回 `STATUS_NOT_SUPPORTED`，因此常见场景会失败。
+
+常见错误文本：
+
+- `驱动未加载`
+- `dll_path 不能为空`
+- `构造请求失败: ...`
+- `注入 DLL 失败: ...`
 
 ---
 

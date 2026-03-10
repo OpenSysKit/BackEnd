@@ -120,9 +120,37 @@ func main() {
 
 	log.Println("OpenSysKit 后端服务已启动，等待前端连接...")
 
+	// 启动前端进程（与后端 exe 同目录的 OpenSysKit.UI.exe）
+	guard, guardErr := newFrontendGuard()
+	if guardErr != nil {
+		log.Printf("警告: 无法初始化前端守护 (%v)，继续以无头模式运行", guardErr)
+	} else {
+		// 等待命名管道就绪，再拉起前端，避免前端连接时管道还没 Listen
+		if pipeErr := waitForPipe(`\\.\pipe\OpenSysKit`, 5*time.Second); pipeErr != nil {
+			log.Printf("警告: %v，仍尝试启动前端", pipeErr)
+		}
+		if startErr := guard.Start(); startErr != nil {
+			log.Printf("警告: 启动前端失败 (%v)，继续以无头模式运行", startErr)
+		} else {
+			log.Printf("前端守护已激活，前端 PID = %d", guard.pidOf())
+		}
+	}
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+
+	// 等待：前端退出 OR 系统信号 OR 外部信号
+	if guard != nil && guardErr == nil {
+		select {
+		case <-guard.Done():
+			log.Println("前端已退出，后端随之退出")
+		case <-sig:
+			log.Println("收到退出信号，正在关闭前端...")
+			guard.Kill()
+		}
+	} else {
+		<-sig
+	}
 
 	log.Println("正在关闭服务...")
 

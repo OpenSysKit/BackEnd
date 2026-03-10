@@ -1,0 +1,100 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    name: Build Backend + Bundle Frontend
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: Build backend exe
+        shell: pwsh
+        run: |
+          $version = git describe --tags --always --dirty 2>$null
+          if (-not $version) { $version = "dev" }
+          $buildTime = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+          go build `
+            -ldflags "-s -w -X main.version=$version -X main.buildTime=$buildTime" `
+            -o dist\OpenSysKit.exe `
+            .\cmd\server
+        working-directory: ${{ github.workspace }}
+
+      # ── 拉取前端最新成功构建的 artifact ──────────────────────────
+      - name: Get latest frontend run ID
+        id: frontend_run
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 查询 OpenSysKit/new-FrontEnd 仓库最近一次成功的 workflow run
+          $resp = gh api `
+            "repos/OpenSysKit/new-FrontEnd/actions/workflows/build.yml/runs?status=success&per_page=1" `
+            --jq ".workflow_runs[0].id"
+          echo "run_id=$resp" >> $env:GITHUB_OUTPUT
+          echo "Frontend run ID: $resp"
+
+      - name: Download frontend artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $runId = "${{ steps.frontend_run.outputs.run_id }}"
+          if (-not $runId -or $runId -eq "null") {
+            echo "未找到前端构建产物，跳过前端捆绑"
+            exit 0
+          }
+          gh run download $runId `
+            --repo OpenSysKit/new-FrontEnd `
+            --name OpenSysKit-UI-win-x64 `
+            --dir dist\
+          echo "前端 artifact 下载完成"
+
+      - name: List dist contents
+        shell: pwsh
+        run: Get-ChildItem dist\ -Recurse
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenSysKit-bundle-win-x64
+          path: dist\
+          if-no-files-found: error
+
+  release:
+    name: Attach to Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: OpenSysKit-bundle-win-x64
+          path: dist/
+
+      - name: Zip bundle
+        run: |
+          cd dist
+          zip -r ../OpenSysKit-win-x64.zip .
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OpenSysKit-win-x64.zip

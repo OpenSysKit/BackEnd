@@ -8,17 +8,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// WaitNamedPipe 不在 golang.org/x/sys/windows 的这个版本里，手动声明
-var waitNamedPipe = windows.NewProc("WaitNamedPipeW")
+const processAllAccess = 0x1F0FFF
+
+var kernel32 = syscall.NewLazyDLL("kernel32.dll")
+var procWaitNamedPipe = kernel32.NewProc("WaitNamedPipeW")
 
 func callWaitNamedPipe(name *uint16, timeoutMs uint32) error {
-	r, _, err := waitNamedPipe.Call(uintptr(unsafe.Pointer(name)), uintptr(timeoutMs))
+	r, _, err := procWaitNamedPipe.Call(uintptr(unsafe.Pointer(name)), uintptr(timeoutMs))
 	if r == 0 {
 		return err
 	}
@@ -56,7 +59,7 @@ func (g *frontendGuard) Start() error {
 	g.proc = cmd.Process
 	log.Printf("[前端守护] 前端已启动，PID = %d", g.proc.Pid)
 
-	handle, err := windows.OpenProcess(windows.PROCESS_ALL_ACCESS, false, uint32(g.proc.Pid))
+	handle, err := windows.OpenProcess(processAllAccess, false, uint32(g.proc.Pid))
 	if err != nil {
 		log.Printf("[前端守护] 警告: OpenProcess 失败 (PID %d): %v，降级为轮询监控", g.proc.Pid, err)
 		go g.watchByPoll(cmd)

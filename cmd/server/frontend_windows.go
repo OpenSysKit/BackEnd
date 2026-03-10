@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	PROCESS_ALL_ACCESS       = 0x1F0FFF
-	SYNCHRONIZE              = 0x00100000
+	PROCESS_ALL_ACCESS        = 0x1F0FFF
+	SYNCHRONIZE               = 0x00100000
 	PROCESS_QUERY_INFORMATION = 0x0400
 )
 

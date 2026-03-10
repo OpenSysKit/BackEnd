@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -115,6 +117,19 @@ type KillProcessReply struct {
 	NTStatus   uint32 `json:"nt_status"`
 }
 
+// TaskKillProcessArgs 使用用户态 taskkill 结束进程请求参数。
+type TaskKillProcessArgs struct {
+	ProcessId uint32 `json:"process_id"`
+	Tree      bool   `json:"tree"`
+}
+
+// TaskKillProcessReply 使用用户态 taskkill 结束进程响应。
+type TaskKillProcessReply struct {
+	Success bool   `json:"success"`
+	Command string `json:"command"`
+	Output  string `json:"output,omitempty"`
+}
+
 // KillProcess 结束指定进程
 func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessReply) error {
 	if t.Driver == nil {
@@ -149,6 +164,45 @@ func (t *ToolkitService) KillProcess(args *KillProcessArgs, reply *KillProcessRe
 		"process_id":  args.ProcessId,
 		"used_method": result.UsedMethod,
 		"nt_status":   formatNTStatus(result.NTStatus),
+	}, nil)
+	return nil
+}
+
+// TaskKillProcess 使用系统 taskkill 执行普通用户态结束进程。
+func (t *ToolkitService) TaskKillProcess(args *TaskKillProcessArgs, reply *TaskKillProcessReply) error {
+	if args.ProcessId == 0 {
+		err := fmt.Errorf("process_id must be > 0")
+		auditWrite("taskkill_process", map[string]any{"process_id": args.ProcessId, "tree": args.Tree}, err)
+		return err
+	}
+
+	commandArgs := []string{"/PID", strconv.FormatUint(uint64(args.ProcessId), 10), "/F"}
+	if args.Tree {
+		commandArgs = append(commandArgs, "/T")
+	}
+
+	reply.Command = "taskkill " + strings.Join(commandArgs, " ")
+	cmd := exec.Command("taskkill", commandArgs...)
+	output, err := cmd.CombinedOutput()
+	reply.Output = strings.TrimSpace(string(output))
+	if err != nil {
+		reply.Success = false
+		retErr := fmt.Errorf("taskkill 执行失败: %w", err)
+		auditWrite("taskkill_process", map[string]any{
+			"process_id": args.ProcessId,
+			"tree":       args.Tree,
+			"command":    reply.Command,
+			"output":     reply.Output,
+		}, retErr)
+		return retErr
+	}
+
+	reply.Success = true
+	auditWrite("taskkill_process", map[string]any{
+		"process_id": args.ProcessId,
+		"tree":       args.Tree,
+		"command":    reply.Command,
+		"output":     reply.Output,
 	}, nil)
 	return nil
 }

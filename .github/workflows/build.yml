@@ -59,11 +59,28 @@ jobs:
             echo "未找到前端构建产物，跳过前端捆绑"
             exit 0
           }
+          New-Item -ItemType Directory -Force -Path dist\_frontend | Out-Null
           gh run download $runId `
             --repo OpenSysKit/new-FrontEnd `
             --name OpenSysKit-UI-win-x64 `
-            --dir dist\
+            --dir dist\_frontend
           echo "前端 artifact 下载完成"
+
+      - name: Expand frontend bundle into dist
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist\_frontend -Filter *.zip -File -Recurse | Select-Object -First 1
+          if (-not $zip) {
+            echo "未找到前端 zip，保留仅后端产物"
+            exit 0
+          }
+
+          Expand-Archive -Path $zip.FullName -DestinationPath dist\ -Force
+          Remove-Item $zip.FullName -Force
+          if (Test-Path dist\_frontend) {
+            Remove-Item dist\_frontend -Recurse -Force
+          }
+          echo "前端已解包到 dist 根目录"
 
       - name: List dist contents
         shell: pwsh

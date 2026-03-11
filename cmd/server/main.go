@@ -58,6 +58,17 @@ func main() {
 	var winDriveDrv driver.Device
 	mappedHandles := make([]uint64, 0, 1)
 	mappedByThisProcess := false
+	var loader *driver.Loader
+	var err error
+
+	loader, err = driver.NewLoader("DriverLoader.sys")
+	if err != nil {
+		log.Printf("警告: 初始化加载器失败: %v", err)
+	} else {
+		defer loader.Close()
+		log.Println("加载器初始化成功")
+	}
+
 	client, err := driver.Open(devicePath)
 	if err == nil {
 		drv = client
@@ -67,14 +78,10 @@ func main() {
 		log.Printf("未检测到运行中的驱动 (%v)，尝试通过 DriverLoader 加载...", err)
 
 		// 尝试通过 DriverLoader 手动映射并加载驱动
-		loader, loaderErr := driver.NewLoader("DriverLoader.sys")
-		if loaderErr != nil {
-			log.Printf("警告: 初始化加载器失败: %v", loaderErr)
+		if loader == nil {
+			log.Printf("警告: 加载器不可用，无法映射驱动")
 		} else {
-			// 将 loader 的清理工作放到 defer，程序退出时自动卸载目标驱动并停止加载器
-			defer loader.Close()
-
-			log.Println("加载器初始化成功，尝试映射 OpenSysKit.sys...")
+			log.Println("尝试映射 OpenSysKit.sys...")
 			if handle, mapErr := loader.MapDriver("OpenSysKit.sys"); mapErr != nil {
 				log.Printf("警告: 映射驱动失败: %v", mapErr)
 			} else {

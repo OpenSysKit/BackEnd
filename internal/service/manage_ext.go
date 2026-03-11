@@ -719,7 +719,7 @@ func (t *ToolkitService) ApplyProtectTemplate(args *ApplyProtectTemplateArgs, re
 	case "medium":
 		mask = 0x00000801 // TERMINATE + SUSPEND_RESUME
 	case "high":
-		mask = 0x00000A21 // TERMINATE + VM_WRITE + SET_INFORMATION + SUSPEND_RESUME
+		mask = 0x00000A6B // TERMINATE + CREATE_THREAD + VM_OPERATION + VM_WRITE + DUP_HANDLE + SET_INFORMATION + SUSPEND_RESUME
 	default:
 		err := fmt.Errorf("template 仅支持 low/medium/high")
 		auditWrite("apply_protect_template", map[string]any{"template": args.Template}, err)

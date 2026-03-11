@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/windows/svc/mgr"
 )
@@ -122,7 +123,8 @@ $items = Get-ScheduledTask | Where-Object { $_.Settings.Enabled -eq $true } | Fo
 }
 $items | ConvertTo-Json -Depth 4 -Compress`
 
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	output, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {

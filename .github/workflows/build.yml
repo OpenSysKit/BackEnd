@@ -98,6 +98,10 @@ jobs:
           go build -ldflags "$ldflags" -o dist\OpenSysKit.exe .\cmd\server
         working-directory: ${{ github.workspace }}
 
+      - name: Copy DriverLoader.sys to dist
+        shell: pwsh
+        run: Copy-Item assets\DriverLoader.sys dist\DriverLoader.sys
+
       - name: List dist contents
         shell: pwsh
         run: Get-ChildItem dist\ -Recurse

@@ -57,6 +57,10 @@ jobs:
       - name: Expand frontend bundle into dist
         shell: pwsh
         run: |
+          if (-not (Test-Path "dist\_frontend")) {
+            echo "前端 artifact 未下载，跳过解包"
+            exit 0
+          }
           $zip = Get-ChildItem dist\_frontend -Filter *.zip -File -Recurse | Select-Object -First 1
           if (-not $zip) {
             echo "未找到前端 zip，保留仅后端产物"

@@ -42,12 +42,14 @@ function Build {
         New-Item -ItemType Directory -Force -Path $BinPath | Out-Null
     }
 
+    & (Join-Path $RootPath "scripts\generate-winres.ps1") -RootPath $RootPath
+
     # 提取版本信息
     $tag = git describe --tags --always --dirty 2>$null
     if (-not $tag) { $tag = "dev" }
     $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-    $ldflags = "-s -w -X 'main.version=$tag' -X 'main.buildTime=$time'"
+    $ldflags = "-H=windowsgui -s -w -X 'main.version=$tag' -X 'main.buildTime=$time'"
 
     Write-Host ">>> Compiling Go backend ($tag)..." -ForegroundColor Cyan
     go build -ldflags $ldflags -trimpath -o $ExePath ./cmd/server

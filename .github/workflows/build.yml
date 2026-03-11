@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $resp = gh api `
-            "repos/OpenSysKit/new-FrontEnd/actions/workflows/build.yml/runs?status=success&per_page=1" `
+            "repos/OpenSysKit/new-FrontEnd/actions/workflows/build.yml/runs?status=success&branch=main&event=push&per_page=1" `
             --jq ".workflow_runs[0].id"
           echo "run_id=$resp" >> $env:GITHUB_OUTPUT
           echo "Frontend run ID: $resp"
@@ -73,6 +73,21 @@ jobs:
           }
           echo "前端已解包到 dist 根目录"
 
+      - name: Verify frontend signature
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist\OpenSysKit.UI.exe")) {
+            throw "前端 EXE 不存在，无法校验签名"
+          }
+          $sig = Get-AuthenticodeSignature "dist\OpenSysKit.UI.exe"
+          if (-not $sig.SignerCertificate) {
+            throw "前端产物未签名，拒绝继续构建后端 bundle"
+          }
+
+      - name: Generate backend Windows resources
+        shell: pwsh
+        run: .\scripts\generate-winres.ps1 -RootPath $PWD
+
       # ── 计算前端 SHA256 ──────────────────────────
       - name: Compute frontend SHA256
         id: frontend_hash
@@ -94,13 +109,42 @@ jobs:
           if (-not $version) { $version = "dev" }
           $buildTime = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
           $feHash = "${{ steps.frontend_hash.outputs.sha256 }}"
-          $ldflags = "-s -w -X main.version=$version -X main.buildTime=$buildTime"
+          $ldflags = "-H=windowsgui -s -w -X main.version=$version -X main.buildTime=$buildTime"
           if ($feHash) {
             $ldflags += " -X main.frontendSHA256=$feHash"
             Write-Host "Injecting frontend SHA256: $feHash"
           }
           go build -ldflags "$ldflags" -o dist\OpenSysKit.exe .\cmd\server
         working-directory: ${{ github.workspace }}
+
+      - name: Sign backend executable
+        shell: pwsh
+        env:
+          CODESIGN_PFX: ${{ secrets.CODESIGN_PFX }}
+          CODESIGN_PASSWORD: ${{ secrets.CODESIGN_PASSWORD }}
+        run: |
+          if (-not $env:CODESIGN_PFX) { throw "CODESIGN_PFX 未设置，拒绝生成未签名后端产物" }
+          if (-not $env:CODESIGN_PASSWORD) { throw "CODESIGN_PASSWORD 未设置" }
+          $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          $b64 = $env:CODESIGN_PFX -replace '\s', ''
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($b64))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
+            -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found" }
+          & $signtool.FullName sign `
+            /fd SHA256 `
+            /f $certPath `
+            /p $env:CODESIGN_PASSWORD `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            "dist\OpenSysKit.exe"
+          if ($LASTEXITCODE -ne 0) { throw "后端签名失败" }
+          $sig = Get-AuthenticodeSignature "dist\OpenSysKit.exe"
+          if (-not $sig.SignerCertificate) { throw "后端签名校验失败" }
+          Remove-Item $certPath -Force
 
       - name: Copy DriverLoader.sys to dist
         shell: pwsh

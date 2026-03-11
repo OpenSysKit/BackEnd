@@ -33,7 +33,7 @@ func BuildPipeSecurityDescriptor() (string, error) {
 // ValidatePipeClient 校验命名管道客户端是否可信：
 // 1) 客户端进程用户 SID 必须与当前进程用户 SID 一致
 // 2) 可选: OPENSYSKIT_PIPE_ALLOWED_IMAGES 白名单限制可执行文件名（分号分隔）
-// 3) Authenticode 签名验证 + 证书指纹校验
+// 3) 前端 EXE SHA256 hash 校验
 func ValidatePipeClient(conn net.Conn) error {
 	pid, err := getNamedPipeClientPID(conn)
 	if err != nil {
@@ -58,7 +58,7 @@ func ValidatePipeClient(conn net.Conn) error {
 		return err
 	}
 
-	if err := ValidateProcessSignature(pid); err != nil {
+	if err := ValidateProcessHash(pid); err != nil {
 		return err
 	}
 

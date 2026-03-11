@@ -3,11 +3,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -45,7 +49,50 @@ func newFrontendGuard() (*frontendGuard, error) {
 	if _, err := os.Stat(exePath); err != nil {
 		return nil, fmt.Errorf("前端可执行文件不存在 (%s): %w", exePath, err)
 	}
+
+	if err := verifyFrontendHash(exePath); err != nil {
+		return nil, fmt.Errorf("前端完整性校验失败: %w", err)
+	}
+
 	return &frontendGuard{exePath: exePath, done: make(chan struct{})}, nil
+}
+
+// verifyFrontendHash 校验前端 EXE 的 SHA256 是否与编译时注入的值一致。
+// 开关逻辑：
+//   - frontendSHA256 为空（本地 dev 构建）=> 跳过
+//   - 环境变量 OPENSYSKIT_SKIP_HASH_CHECK=1 => 跳过（本地测试用）
+func verifyFrontendHash(exePath string) error {
+	if frontendSHA256 == "" {
+		log.Println("[integrity] 前端 hash 未注入（dev 构建），跳过校验")
+		return nil
+	}
+
+	skipEnv := strings.TrimSpace(os.Getenv("OPENSYSKIT_SKIP_HASH_CHECK"))
+	if skipEnv == "1" || strings.EqualFold(skipEnv, "true") {
+		log.Println("[integrity] OPENSYSKIT_SKIP_HASH_CHECK=1，跳过前端 hash 校验")
+		return nil
+	}
+
+	f, err := os.Open(exePath)
+	if err != nil {
+		return fmt.Errorf("打开前端文件失败: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("计算 SHA256 失败: %w", err)
+	}
+
+	actual := strings.ToLower(hex.EncodeToString(h.Sum(nil)))
+	expected := strings.ToLower(strings.TrimSpace(frontendSHA256))
+
+	if actual != expected {
+		return fmt.Errorf("前端 SHA256 不匹配\n  期望: %s\n  实际: %s\n  文件可能被篡改", expected, actual)
+	}
+
+	log.Printf("[integrity] 前端 hash 校验通过: %s", actual)
+	return nil
 }
 
 // Start 启动前端进程，获取内核句柄，开启监控 goroutine

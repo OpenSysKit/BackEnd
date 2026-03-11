@@ -11,6 +11,7 @@ import (
 	"github.com/OpenSysKit/backend/internal/driver"
 	"github.com/OpenSysKit/backend/internal/ipc"
 	rpcserver "github.com/OpenSysKit/backend/internal/rpc"
+	"github.com/OpenSysKit/backend/internal/security"
 )
 
 const devicePath = `\\.\OpenSysKit`
@@ -18,8 +19,9 @@ const winDriveDevicePath = `\\.\DriverLoader`
 
 // 由 -ldflags 在编译时注入
 var (
-	version   = "dev"
-	buildTime = "unknown"
+	version        = "dev"
+	buildTime      = "unknown"
+	frontendSHA256 = "" // CI 构建时注入前端 EXE 的 SHA256 hex，为空则跳过校验
 )
 
 func main() {
@@ -40,6 +42,8 @@ func main() {
 	}
 
 	log.Printf("OpenSysKit 后端服务正在启动... (版本: %s, 构建时间: %s)", version, buildTime)
+
+	security.SetTrustedFrontendHash(frontendSHA256)
 
 	// 打开内核驱动设备
 	var drv driver.Device

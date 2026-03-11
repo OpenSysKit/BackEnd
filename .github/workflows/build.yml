@@ -24,18 +24,6 @@ jobs:
           go-version: '1.25.x'
           cache: true
 
-      - name: Build backend exe
-        shell: pwsh
-        run: |
-          $version = git describe --tags --always --dirty 2>$null
-          if (-not $version) { $version = "dev" }
-          $buildTime = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-          go build `
-            -ldflags "-s -w -X main.version=$version -X main.buildTime=$buildTime" `
-            -o dist\OpenSysKit.exe `
-            .\cmd\server
-        working-directory: ${{ github.workspace }}
-
       # ── 拉取前端最新成功构建的 artifact ──────────────────────────
       - name: Get latest frontend run ID
         id: frontend_run
@@ -43,7 +31,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 查询 OpenSysKit/new-FrontEnd 仓库最近一次成功的 workflow run
           $resp = gh api `
             "repos/OpenSysKit/new-FrontEnd/actions/workflows/build.yml/runs?status=success&per_page=1" `
             --jq ".workflow_runs[0].id"
@@ -75,7 +62,6 @@ jobs:
             echo "未找到前端 zip，保留仅后端产物"
             exit 0
           }
-
           Expand-Archive -Path $zip.FullName -DestinationPath dist\ -Force
           Remove-Item $zip.FullName -Force
           if (Test-Path dist\_frontend) {
@@ -83,44 +69,34 @@ jobs:
           }
           echo "前端已解包到 dist 根目录"
 
-      - name: Decode signing certificate
-        shell: pwsh
-        run: |
-          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String("${{ secrets.CODESIGN_PFX }}"))
-
-      - name: Sign backend executable
-        shell: pwsh
-        run: |
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe not found" }
-          & $signtool.FullName sign /fd sha256 /f cert.pfx /p "${{ secrets.CODESIGN_PASSWORD }}" /tr http://timestamp.digicert.com /td sha256 "dist\OpenSysKit.exe"
-          if ($LASTEXITCODE -ne 0) { throw "Backend signing failed" }
-
-      - name: Sign frontend executable
+      # ── 计算前端 SHA256 ──────────────────────────
+      - name: Compute frontend SHA256
+        id: frontend_hash
         shell: pwsh
         run: |
           if (-not (Test-Path "dist\OpenSysKit.UI.exe")) {
-            Write-Host "Frontend exe not found, skipping frontend signing"
+            echo "sha256=" >> $env:GITHUB_OUTPUT
             exit 0
           }
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
-            Sort-Object FullName -Descending | Select-Object -First 1
-          if (-not $signtool) { throw "signtool.exe not found" }
-          $ErrorActionPreference = "SilentlyContinue"
-          & $signtool.FullName verify /pa "dist\OpenSysKit.UI.exe" 2>$null | Out-Null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "Frontend already signed, skipping"
-          } else {
-            $ErrorActionPreference = "Stop"
-            & $signtool.FullName sign /fd sha256 /f cert.pfx /p "${{ secrets.CODESIGN_PASSWORD }}" /tr http://timestamp.digicert.com /td sha256 "dist\OpenSysKit.UI.exe"
-            if ($LASTEXITCODE -ne 0) { throw "Frontend signing failed" }
-          }
+          $hash = (Get-FileHash -Path "dist\OpenSysKit.UI.exe" -Algorithm SHA256).Hash.ToLower()
+          echo "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "Frontend SHA256: $hash"
 
-      - name: Cleanup certificate
-        if: always()
+      # ── 编译后端（注入前端 hash）──────────────────────────
+      - name: Build backend exe
         shell: pwsh
-        run: Remove-Item cert.pfx -Force -ErrorAction SilentlyContinue
+        run: |
+          $version = git describe --tags --always --dirty 2>$null
+          if (-not $version) { $version = "dev" }
+          $buildTime = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+          $feHash = "${{ steps.frontend_hash.outputs.sha256 }}"
+          $ldflags = "-s -w -X main.version=$version -X main.buildTime=$buildTime"
+          if ($feHash) {
+            $ldflags += " -X main.frontendSHA256=$feHash"
+            Write-Host "Injecting frontend SHA256: $feHash"
+          }
+          go build -ldflags "$ldflags" -o dist\OpenSysKit.exe .\cmd\server
+        working-directory: ${{ github.workspace }}
 
       - name: List dist contents
         shell: pwsh

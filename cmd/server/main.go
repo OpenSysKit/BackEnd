@@ -139,17 +139,24 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	// 等待：前端退出 OR 系统信号 OR 外部信号
+	// 等待：前端退出 OR 管道独占连接断开 OR 系统信号
 	if guard != nil && guardErr == nil {
 		select {
 		case <-guard.Done():
 			log.Println("前端已退出，后端随之退出")
+		case <-srv.Done():
+			log.Println("管道独占连接已断开，后端退出")
+			guard.Kill()
 		case <-sig:
 			log.Println("收到退出信号，正在关闭前端...")
 			guard.Kill()
 		}
 	} else {
-		<-sig
+		select {
+		case <-srv.Done():
+			log.Println("管道独占连接已断开，后端退出")
+		case <-sig:
+		}
 	}
 
 	log.Println("正在关闭服务...")

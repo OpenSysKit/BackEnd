@@ -27,6 +27,14 @@ var (
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	hideConsoleWindow()
+	logFile, logErr := setupLogFile()
+	if logErr != nil {
+		log.Printf("警告: 日志文件初始化失败: %v", logErr)
+	} else {
+		defer logFile.Close()
+	}
+
 	if shouldEnterAutoUninstallMode() {
 		if err := runAutoUninstallMode(); err != nil {
 			log.Fatalf("自动卸载失败: %v", err)

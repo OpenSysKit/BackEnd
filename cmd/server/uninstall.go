@@ -13,6 +13,46 @@ import (
 	"github.com/OpenSysKit/backend/internal/driver"
 )
 
+// runInlineUninstall 在当前进程内同步卸载映射驱动，
+// 使用已持有的 loader 实例，无需启动子进程。
+// 调用前必须已关闭 OpenSysKit 设备句柄。
+func runInlineUninstall(loader *driver.Loader, handles []uint64) error {
+	if loader == nil {
+		return fmt.Errorf("loader 不可用")
+	}
+
+	sort.Slice(handles, func(i, j int) bool { return handles[i] > handles[j] })
+
+	log.Printf("[uninstall] 同步卸载 handles: %s", formatHandleList(handles))
+	for _, handle := range handles {
+		if err := unloadHandleWithRetry(loader, handle, 5); err != nil {
+			return err
+		}
+	}
+
+	after, err := loader.ListMappedDrivers()
+	if err != nil {
+		return err
+	}
+	if len(after) != 0 {
+		return fmt.Errorf("卸载后仍存在映射驱动: %s", formatHandles(after))
+	}
+
+	log.Println("[uninstall] 下发 WinDrive allow-unload")
+	if err = loader.AllowUnload(); err != nil {
+		return err
+	}
+
+	loader.Close()
+
+	log.Println("[uninstall] 卸载 DriverLoader 服务")
+	if err = driver.UninstallLoaderService(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func runUninstallMode() error {
 	log.Println("[uninstall] 进入手动卸载模式")
 

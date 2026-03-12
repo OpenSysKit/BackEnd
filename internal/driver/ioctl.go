@@ -38,6 +38,7 @@ var (
 	IOCTL_ENUM_HANDLES         = CTL_CODE(deviceTypeOpenSysKit, 0x830, methodBuffered, fileAnyAccess)
 	IOCTL_CLOSE_HANDLE         = CTL_CODE(deviceTypeOpenSysKit, 0x831, methodBuffered, fileAnyAccess)
 	IOCTL_ENUM_CONNECTIONS     = CTL_CODE(deviceTypeOpenSysKit, 0x850, methodBuffered, fileAnyAccess)
+	IOCTL_DETACH_SYMLINK       = CTL_CODE(deviceTypeOpenSysKit, 0x8F0, methodBuffered, fileAnyAccess)
 
 	// WinDrive (DriverLoader) process-protect IOCTLs。
 	// 虽然 function 值与 OpenSysKit 的提权 IOCTL 有重叠，但设备句柄不同。

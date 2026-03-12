@@ -201,16 +201,24 @@ func main() {
 
 	log.Println("正在关闭服务...")
 
-	// 在调度卸载前先释放 OpenSysKit 设备句柄，
-	// 避免卸载子进程因设备仍被占用而失败。
+	// 1) 先让驱动删除符号链接，阻止外部再打开设备
+	if drv != nil {
+		log.Println("发送 IOCTL_DETACH_SYMLINK，断开设备符号链接")
+		if _, err := drv.IoControl(driver.IOCTL_DETACH_SYMLINK, nil, 0); err != nil {
+			log.Printf("警告: IOCTL_DETACH_SYMLINK 失败: %v", err)
+		}
+	}
+
+	// 2) 关闭设备句柄
 	if drv != nil {
 		if c, ok := drv.(*driver.Client); ok {
-			log.Println("显式关闭 OpenSysKit 设备句柄")
+			log.Println("关闭 OpenSysKit 设备句柄")
 			c.Close()
 			drv = nil
 		}
 	}
 
+	// 3) 同步执行驱动卸载
 	if !autoUninstallEnabled() {
 		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
 		return
@@ -221,12 +229,12 @@ func main() {
 		return
 	}
 
-	if err := scheduleSelfUninstall(8*time.Second, mappedHandles); err != nil {
-		log.Printf("警告: 调度自动卸载流程失败: %v", err)
-		return
+	log.Printf("开始同步卸载驱动: handles=%s", formatHandleList(mappedHandles))
+	if err := runInlineUninstall(loader, mappedHandles); err != nil {
+		log.Printf("警告: 同步卸载失败: %v", err)
+	} else {
+		log.Println("驱动卸载完成")
 	}
-
-	log.Printf("已调度自动卸载流程: OpenSysKit.exe uninstall --handles=%s", formatHandleList(mappedHandles))
 }
 
 func shouldEnterUninstallMode() bool {

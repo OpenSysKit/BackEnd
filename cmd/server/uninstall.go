@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/OpenSysKit/backend/internal/driver"
@@ -36,9 +37,15 @@ func runUninstallMode() error {
 		}
 		sort.Slice(targetHandles, func(i, j int) bool { return targetHandles[i] > targetHandles[j] })
 
+		if waitForDeviceRelease(`\\.\OpenSysKit`, 15*time.Second) {
+			log.Println("[uninstall] 设备引用已释放，开始卸载")
+		} else {
+			log.Println("[uninstall] 警告: 设备可能仍被占用，仍尝试卸载")
+		}
+
 		log.Printf("[uninstall] 计划卸载 handle: %s", formatHandleList(targetHandles))
 		for _, handle := range targetHandles {
-			if err = unloadHandleWithRetry(loader, handle, 3); err != nil {
+			if err = unloadHandleWithRetry(loader, handle, 5); err != nil {
 				return err
 			}
 		}
@@ -172,6 +179,44 @@ func formatHandleList(handles []uint64) string {
 	return strings.Join(parts, ",")
 }
 
+// waitForDeviceRelease 轮询检测 OpenSysKit 设备是否已无其他占用者。
+// 尝试以独占模式打开设备：成功则说明无其他句柄，立即关闭并返回 true。
+// ERROR_SHARING_VIOLATION 说明仍有占用，继续等待。
+// 其他错误（如设备不存在）也视为"已释放"。
+func waitForDeviceRelease(devicePath string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	pathPtr, err := syscall.UTF16PtrFromString(devicePath)
+	if err != nil {
+		return false
+	}
+
+	const ERROR_SHARING_VIOLATION syscall.Errno = 32
+
+	for time.Now().Before(deadline) {
+		h, err := syscall.CreateFile(
+			pathPtr,
+			syscall.GENERIC_READ|syscall.GENERIC_WRITE,
+			0, // dwShareMode=0 → 独占
+			nil,
+			syscall.OPEN_EXISTING,
+			syscall.FILE_ATTRIBUTE_NORMAL,
+			0,
+		)
+		if err == nil {
+			syscall.CloseHandle(h)
+			return true
+		}
+		if errno, ok := err.(syscall.Errno); ok && errno == ERROR_SHARING_VIOLATION {
+			log.Printf("[uninstall] 设备 %s 仍被占用，等待释放...", devicePath)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		// 设备不存在或其他错误 → 视为已释放
+		return true
+	}
+	return false
+}
+
 func unloadHandleWithRetry(loader *driver.Loader, handle uint64, maxAttempts int) error {
 	var lastErr error
 	for i := 1; i <= maxAttempts; i++ {
@@ -182,7 +227,11 @@ func unloadHandleWithRetry(loader *driver.Loader, handle uint64, maxAttempts int
 		}
 		lastErr = err
 		log.Printf("[uninstall] 卸载失败 handle=%d (attempt=%d/%d): %v", handle, i, maxAttempts, err)
-		time.Sleep(300 * time.Millisecond)
+		if i < maxAttempts {
+			backoff := time.Duration(i) * 2 * time.Second
+			log.Printf("[uninstall] 等待 %v 后重试（等待设备引用释放）...", backoff)
+			time.Sleep(backoff)
+		}
 	}
 	return fmt.Errorf("卸载映射驱动失败(handle=%d): %w", handle, lastErr)
 }

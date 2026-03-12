@@ -201,6 +201,16 @@ func main() {
 
 	log.Println("正在关闭服务...")
 
+	// 在调度卸载前先释放 OpenSysKit 设备句柄，
+	// 避免卸载子进程因设备仍被占用而失败。
+	if drv != nil {
+		if c, ok := drv.(*driver.Client); ok {
+			log.Println("显式关闭 OpenSysKit 设备句柄")
+			c.Close()
+			drv = nil
+		}
+	}
+
 	if !autoUninstallEnabled() {
 		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
 		return
@@ -211,7 +221,7 @@ func main() {
 		return
 	}
 
-	if err := scheduleSelfUninstall(5*time.Second, mappedHandles); err != nil {
+	if err := scheduleSelfUninstall(8*time.Second, mappedHandles); err != nil {
 		log.Printf("警告: 调度自动卸载流程失败: %v", err)
 		return
 	}

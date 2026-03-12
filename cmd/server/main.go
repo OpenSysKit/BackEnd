@@ -216,6 +216,11 @@ func main() {
 	} else {
 		log.Println("延迟卸载子进程已启动，当前进程退出")
 	}
+
+	// 强制以最底层的方式结束当前进程，绕过 Go 运行时的清理逻辑，
+	// 试图规避在 WSL2/Pico 兼容层触发的退出蓝屏 (KiSystemServiceExitPico / APC_INDEX_MISMATCH)。
+	hProcess, _ := syscall.GetCurrentProcess()
+	_ = syscall.TerminateProcess(hProcess, 0)
 }
 
 func shouldEnterUninstallMode() bool {

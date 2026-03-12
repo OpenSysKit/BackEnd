@@ -195,21 +195,13 @@ func main() {
 		}
 	}
 
-	if sp != nil {
-		sp.cleanup()
-	}
+	// 不在退出时调用 sp.cleanup()（IOCTL_UNPROTECT_PROCESS），
+	// 避免在进程退出临界区向 WinDrive 发 IOCTL 触发蓝屏。
+	// 保护的 PID 在进程终止后自然失效，驱动卸载时会反注册所有 callback。
 
 	log.Println("正在关闭服务...")
 
-	// 1) 先让驱动删除符号链接，阻止外部再打开设备
-	if drv != nil {
-		log.Println("发送 IOCTL_DETACH_SYMLINK，断开设备符号链接")
-		if _, err := drv.IoControl(driver.IOCTL_DETACH_SYMLINK, nil, 0); err != nil {
-			log.Printf("警告: IOCTL_DETACH_SYMLINK 失败: %v", err)
-		}
-	}
-
-	// 2) 关闭设备句柄
+	// 关闭设备句柄
 	if drv != nil {
 		if c, ok := drv.(*driver.Client); ok {
 			log.Println("关闭 OpenSysKit 设备句柄")
@@ -218,7 +210,7 @@ func main() {
 		}
 	}
 
-	// 3) 同步执行驱动卸载
+	// 驱动卸载改为延迟子进程执行，避免在当前进程退出临界区发 IOCTL 导致蓝屏
 	if !autoUninstallEnabled() {
 		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
 		return
@@ -229,11 +221,11 @@ func main() {
 		return
 	}
 
-	log.Printf("开始同步卸载驱动: handles=%s", formatHandleList(mappedHandles))
-	if err := runInlineUninstall(loader, mappedHandles); err != nil {
-		log.Printf("警告: 同步卸载失败: %v", err)
+	log.Printf("调度延迟卸载子进程: handles=%s", formatHandleList(mappedHandles))
+	if err := scheduleSelfUninstall(3*time.Second, mappedHandles); err != nil {
+		log.Printf("警告: 调度延迟卸载失败: %v", err)
 	} else {
-		log.Println("驱动卸载完成")
+		log.Println("延迟卸载子进程已启动，当前进程退出")
 	}
 }
 

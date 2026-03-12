@@ -118,17 +118,9 @@ func main() {
 		log.Println("已连接 WinDrive 设备")
 	}
 
-	// 自保护：通过 WinDrive ObRegisterCallbacks 保护后端 + 前端进程
-	var sp *selfProtect
-	if winDriveDrv != nil {
-		sp = newSelfProtect(winDriveDrv)
-		if err := sp.applyHighPolicy(); err != nil {
-			log.Printf("警告: %v", err)
-		}
-		if err := sp.protect(uint32(os.Getpid())); err != nil {
-			log.Printf("警告: 保护后端自身失败: %v", err)
-		}
-	}
+	// 自保护暂时禁用——WinDrive ObRegisterCallbacks 与 WSL2 Pico 子系统冲突导致退出蓝屏
+	// var sp *selfProtect
+	_ = winDriveDrv
 
 	// 创建 IPC 监听（命名管道）
 	ln, err := ipc.Listen()
@@ -164,11 +156,8 @@ func main() {
 			log.Printf("警告: 启动前端失败 (%v)，继续以无头模式运行", startErr)
 		} else {
 			log.Printf("前端守护已激活，前端 PID = %d", guard.pidOf())
-			if sp != nil && guard.pidOf() > 0 {
-				if err := sp.protect(uint32(guard.pidOf())); err != nil {
-					log.Printf("警告: 保护前端进程失败: %v", err)
-				}
-			}
+			// 自保护暂时禁用
+			_ = guard.pidOf()
 		}
 	}
 

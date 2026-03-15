@@ -192,15 +192,21 @@ func main() {
 		loader = nil
 	}
 
-	// 卸载不能再放在主进程退出阶段自动执行：
-	// 在当前系统环境下会触发 KiSystemServiceExitPico / APC_INDEX_MISMATCH 蓝屏。
-	// 因此这里只释放本进程句柄，并明确提示使用显式 uninstall 命令完成完整卸载链路。
+	// 自动卸载仍由独立子进程执行，但主进程只负责调度并正常退出，
+	// 避免在当前进程退出临界区直接执行卸载链路触发蓝屏。
+	if !autoUninstallEnabled() {
+		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
+		log.Println("主进程已完成资源释放，正常退出")
+		return
+	}
+
 	if mappedByThisProcess && len(mappedHandles) > 0 {
-		log.Printf("已跳过退出阶段自动卸载以避免蓝屏: mapped_by_this_process=%t, handles=%s，请稍后手动执行 OpenSysKit.exe uninstall --handles=%s",
-			mappedByThisProcess,
-			formatHandleList(mappedHandles),
-			formatHandleList(mappedHandles),
-		)
+		log.Printf("调度自动卸载子进程: handles=%s", formatHandleList(mappedHandles))
+		if err := scheduleSelfUninstall(1*time.Second, mappedHandles); err != nil {
+			log.Printf("警告: 调度自动卸载失败: %v，请手动执行 OpenSysKit.exe uninstall --handles=%s", err, formatHandleList(mappedHandles))
+		} else {
+			log.Printf("自动卸载子进程已启动，将执行 WinDrive 安全卸载链路: handles=%s", formatHandleList(mappedHandles))
+		}
 	} else {
 		log.Printf("退出时无需卸载映射驱动: mapped_by_this_process=%t, handles=%s", mappedByThisProcess, formatHandleList(mappedHandles))
 	}

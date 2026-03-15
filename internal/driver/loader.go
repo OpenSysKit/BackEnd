@@ -43,7 +43,7 @@ type unloadDriverRequest struct {
 	DriverHandle uint64
 }
 
-type loadedDriverEntryRaw struct {
+type loadedDriverEntryRawV1 struct {
 	Handle          uint64
 	DriverBase      uint64
 	ImageSize       uint64
@@ -53,10 +53,36 @@ type loadedDriverEntryRaw struct {
 	Reserved        [6]uint8
 }
 
-type listDriversResponse struct {
+type listDriversResponseV1 struct {
 	Count    uint32
 	Reserved uint32
-	Drivers  [maxListCount]loadedDriverEntryRaw
+	Drivers  [maxListCount]loadedDriverEntryRawV1
+}
+
+type loadedDriverEntryRawV2 struct {
+	Handle              uint64
+	DriverBase          uint64
+	ImageSize           uint64
+	DriverObject        uint64
+	HasDeviceObject     uint8
+	HasUnload           uint8
+	Reserved            [2]uint8
+	UnloadMode          uint32
+	CleanupFlags        uint32
+	LastUnloadStage     uint32
+	LastUnloadStatus    uint32
+	FallbackReason      uint32
+	DriverTier          uint32
+	LoadFlags           uint32
+	ManagedLdrState     uint32
+	CompatibilityFlags  uint32
+	FallbackCount       uint32
+}
+
+type listDriversResponseV2 struct {
+	Count    uint32
+	Reserved uint32
+	Drivers  [maxListCount]loadedDriverEntryRawV2
 }
 
 // LoadedDriverInfo WinDrive 映射驱动条目
@@ -280,32 +306,70 @@ func (l *Loader) ListMappedDrivers() ([]LoadedDriverInfo, error) {
 		return nil, fmt.Errorf("loader 设备未连接")
 	}
 
-	var resp listDriversResponse
+	// 兼容旧版/新版 DriverLoader 的 LIST_DRIVERS_RESPONSE 结构。
+	// 新版在每个条目后追加了多个诊断字段，旧版结构会因输出缓冲区过小而失败。
+	var respV2 listDriversResponseV2
 	var bytesReturned uint32
 	err := syscall.DeviceIoControl(
 		l.handle,
 		ioctlListDrivers,
 		nil,
 		0,
-		(*byte)(unsafe.Pointer(&resp)),
-		uint32(unsafe.Sizeof(resp)),
+		(*byte)(unsafe.Pointer(&respV2)),
+		uint32(unsafe.Sizeof(respV2)),
+		&bytesReturned,
+		nil,
+	)
+	if err == nil {
+		if bytesReturned < 8 {
+			return nil, fmt.Errorf("映射驱动列表响应长度异常: got=%d want>=8", bytesReturned)
+		}
+		count := int(respV2.Count)
+		if count > maxListCount {
+			count = maxListCount
+		}
+		out := make([]LoadedDriverInfo, 0, count)
+		for i := 0; i < count; i++ {
+			row := respV2.Drivers[i]
+			out = append(out, LoadedDriverInfo{
+				Handle:          row.Handle,
+				DriverBase:      row.DriverBase,
+				ImageSize:       row.ImageSize,
+				DriverObject:    row.DriverObject,
+				HasDeviceObject: row.HasDeviceObject != 0,
+				HasUnload:       row.HasUnload != 0,
+			})
+		}
+		return out, nil
+	}
+
+	// 旧版结构兜底
+	var respV1 listDriversResponseV1
+	bytesReturned = 0
+	err = syscall.DeviceIoControl(
+		l.handle,
+		ioctlListDrivers,
+		nil,
+		0,
+		(*byte)(unsafe.Pointer(&respV1)),
+		uint32(unsafe.Sizeof(respV1)),
 		&bytesReturned,
 		nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询映射驱动列表失败: %w", err)
 	}
-	if bytesReturned < uint32(unsafe.Sizeof(resp)) {
-		return nil, fmt.Errorf("映射驱动列表响应长度异常: got=%d want=%d", bytesReturned, unsafe.Sizeof(resp))
+	if bytesReturned < 8 {
+		return nil, fmt.Errorf("映射驱动列表响应长度异常: got=%d want>=8", bytesReturned)
 	}
 
-	count := int(resp.Count)
+	count := int(respV1.Count)
 	if count > maxListCount {
 		count = maxListCount
 	}
 	out := make([]LoadedDriverInfo, 0, count)
 	for i := 0; i < count; i++ {
-		row := resp.Drivers[i]
+		row := respV1.Drivers[i]
 		out = append(out, LoadedDriverInfo{
 			Handle:          row.Handle,
 			DriverBase:      row.DriverBase,

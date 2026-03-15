@@ -37,7 +37,7 @@ func main() {
 	if shouldEnterAutoUninstallMode() {
 		if err := runAutoUninstallMode(); err != nil {
 			log.Fatalf("自动卸载失败: %v", err)
-		}	
+		}
 		return
 	}
 
@@ -192,29 +192,21 @@ func main() {
 		loader = nil
 	}
 
-	// 驱动卸载改为延迟子进程执行，避免在当前进程退出临界区发 IOCTL 导致蓝屏
-	if !autoUninstallEnabled() {
-		log.Printf("自动卸载已禁用: mapped_by_this_process=%t, handles=%s，请手动执行 OpenSysKit.exe uninstall", mappedByThisProcess, formatHandleList(mappedHandles))
-		return
-	}
-
-	if !mappedByThisProcess || len(mappedHandles) == 0 {
-		log.Printf("自动卸载已跳过: mapped_by_this_process=%t, handles=%s", mappedByThisProcess, formatHandleList(mappedHandles))
-		return
-	}
-
-	log.Printf("调度延迟卸载子进程: handles=%s", formatHandleList(mappedHandles))
-	// 增加延迟时间到 5 秒，确保主进程完全退出
-	if err := scheduleSelfUninstall(5*time.Second, mappedHandles); err != nil {
-		log.Printf("警告: 调度延迟卸载失败: %v", err)
+	// 卸载不能再放在主进程退出阶段自动执行：
+	// 在当前系统环境下会触发 KiSystemServiceExitPico / APC_INDEX_MISMATCH 蓝屏。
+	// 因此这里只释放本进程句柄，并明确提示使用显式 uninstall 命令完成完整卸载链路。
+	if mappedByThisProcess && len(mappedHandles) > 0 {
+		log.Printf("已跳过退出阶段自动卸载以避免蓝屏: mapped_by_this_process=%t, handles=%s，请稍后手动执行 OpenSysKit.exe uninstall --handles=%s",
+			mappedByThisProcess,
+			formatHandleList(mappedHandles),
+			formatHandleList(mappedHandles),
+		)
 	} else {
-		log.Println("延迟卸载子进程已启动，当前进程退出")
+		log.Printf("退出时无需卸载映射驱动: mapped_by_this_process=%t, handles=%s", mappedByThisProcess, formatHandleList(mappedHandles))
 	}
 
-	// 强制以最底层的方式结束当前进程，绕过 Go 运行时的清理逻辑，
-	// 试图规避在 WSL2/Pico 兼容层触发的退出蓝屏 (KiSystemServiceExitPico / APC_INDEX_MISMATCH)。
-	hProcess, _ := syscall.GetCurrentProcess()
-	_ = syscall.TerminateProcess(hProcess, 0)
+	log.Println("主进程已完成资源释放，正常退出")
+	return
 }
 
 func shouldEnterUninstallMode() bool {

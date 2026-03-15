@@ -15,7 +15,6 @@ import (
 )
 
 const devicePath = `\\.\OpenSysKit`
-const winDriveDevicePath = `\\.\DriverLoader`
 
 // 由 -ldflags 在编译时注入
 var (
@@ -38,7 +37,7 @@ func main() {
 	if shouldEnterAutoUninstallMode() {
 		if err := runAutoUninstallMode(); err != nil {
 			log.Fatalf("自动卸载失败: %v", err)
-		}
+		}	
 		return
 	}
 
@@ -55,7 +54,6 @@ func main() {
 
 	// 打开内核驱动设备
 	var drv driver.Device
-	var winDriveDrv driver.Device
 	mappedHandles := make([]uint64, 0, 1)
 	mappedByThisProcess := false
 	var loader *driver.Loader
@@ -65,7 +63,6 @@ func main() {
 	if err != nil {
 		log.Printf("警告: 初始化加载器失败: %v", err)
 	} else {
-		defer loader.Close()
 		log.Println("加载器初始化成功")
 	}
 
@@ -108,19 +105,8 @@ func main() {
 		}
 	}
 
-	// 打开 WinDrive 设备（用于进程保护控制面）
-	winDriveClient, err := driver.Open(winDriveDevicePath)
-	if err != nil {
-		log.Printf("警告: 无法连接 WinDrive 设备 (%s): %v", winDriveDevicePath, err)
-	} else {
-		winDriveDrv = winDriveClient
-		defer winDriveClient.Close()
-		log.Println("已连接 WinDrive 设备")
-	}
-
-	// 自保护暂时禁用——WinDrive ObRegisterCallbacks 与 WSL2 Pico 子系统冲突导致退出蓝屏
-	// var sp *selfProtect
-	_ = winDriveDrv
+	// WinDrive 仅作为驱动加载器使用，不再打开其设备句柄
+	// 进程保护功能已迁移到 OpenSysKit 驱动的 PPL 实现
 
 	// 创建 IPC 监听（命名管道）
 	ln, err := ipc.Listen()
@@ -129,8 +115,8 @@ func main() {
 	}
 	defer ln.Close()
 
-	// 创建 JSON-RPC 服务器
-	srv, err := rpcserver.NewServer(drv, winDriveDrv)
+	// 创建 JSON-RPC 服务器（不再传递 WinDrive 设备）
+	srv, err := rpcserver.NewServer(drv, nil)
 	if err != nil {
 		log.Fatalf("创建 RPC 服务器失败: %v", err)
 	}
@@ -190,13 +176,20 @@ func main() {
 
 	log.Println("正在关闭服务...")
 
-	// 关闭设备句柄
+	// 显式关闭设备句柄，确保在 TerminateProcess 前释放
 	if drv != nil {
 		if c, ok := drv.(*driver.Client); ok {
 			log.Println("关闭 OpenSysKit 设备句柄")
 			c.Close()
 			drv = nil
 		}
+	}
+
+	// 确保 Loader 句柄也被关闭
+	if loader != nil {
+		log.Println("关闭 DriverLoader 句柄")
+		loader.Close()
+		loader = nil
 	}
 
 	// 驱动卸载改为延迟子进程执行，避免在当前进程退出临界区发 IOCTL 导致蓝屏
@@ -211,7 +204,8 @@ func main() {
 	}
 
 	log.Printf("调度延迟卸载子进程: handles=%s", formatHandleList(mappedHandles))
-	if err := scheduleSelfUninstall(3*time.Second, mappedHandles); err != nil {
+	// 增加延迟时间到 5 秒，确保主进程完全退出
+	if err := scheduleSelfUninstall(5*time.Second, mappedHandles); err != nil {
 		log.Printf("警告: 调度延迟卸载失败: %v", err)
 	} else {
 		log.Println("延迟卸载子进程已启动，当前进程退出")

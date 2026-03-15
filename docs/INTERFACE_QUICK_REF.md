@@ -51,19 +51,21 @@
 - 错误 `error` 示例: `驱动未加载` / `结束进程失败: 驱动返回的 Kill 结果过小: ...`
 
 ## 2.4 `Toolkit.ProtectProcess`
-- `params`: `{"process_id":uint32}`
+- `params`: `{"process_id":uint32,"level":uint8(可选)}`
+- `level` 编码：`(Signer << 4) | Type`，默认 `0x31`（Antimalware-Light）
+- 常用等级：`0x00/0x11/0x31/0x41/0x51/0x61`
 - 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `WinDrive 未加载` / `保护进程失败: ...`
+- 错误 `error` 示例: `驱动未加载` / `process_id 不合法，不能为 0 或 4` / `保护进程失败: ...`
 
 ## 2.5 `Toolkit.UnprotectProcess`
 - `params`: `{"process_id":uint32}`
 - 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `WinDrive 未加载` / `取消保护进程失败: ...`
+- 错误 `error` 示例: `驱动未加载` / `取消保护进程失败: ...`
 
 ## 2.6 `Toolkit.SetProtectPolicy`
+- 已废弃，仅兼容保留
 - `params`: `{"version":uint32,"deny_access_mask":uint32}`
-- 成功 `result`: `{"success":true}`
-- 错误 `error` 示例: `WinDrive 未加载` / `设置保护策略失败: ...`
+- 典型返回: `{"success":false}` + `error="SetProtectPolicy 已废弃，请使用 ProtectProcess(level)"`
 
 ## 2.7 `Toolkit.ListDirectory`
 - `params`: `{"path":"绝对路径"}`（空值默认 `C:\\`）

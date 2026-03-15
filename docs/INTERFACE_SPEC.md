@@ -174,7 +174,23 @@
 
 ## 3.4 `Toolkit.ProtectProcess`
 
-参数：`{"process_id": <uint32>}`
+参数：
+
+```json
+{"process_id": <uint32>, "level": <uint8, 可选>}
+```
+
+说明：
+
+- `level` 采用 PPL `PS_PROTECTION.Level` 编码：`(Signer << 4) | Type`
+- 不传 `level` 默认使用 `0x31`（Antimalware-Light）
+- 常用等级：
+  - `0x00`：无保护（恢复原始保护）
+  - `0x11`：Authenticode-Light
+  - `0x31`：Antimalware-Light（推荐）
+  - `0x41`：LSA-Light
+  - `0x51`：Windows-Light
+  - `0x61`：WinTcb-Light
 
 成功返回：
 
@@ -192,7 +208,7 @@
 {
   "id": 4,
   "result": null,
-  "error": "WinDrive 未加载"
+  "error": "保护进程失败: ..."
 }
 ```
 
@@ -222,29 +238,21 @@
 
 ## 3.6 `Toolkit.SetProtectPolicy`
 
+该接口已废弃，仅为兼容保留。
+
 参数：
 
 ```json
 {"version": 1, "deny_access_mask": 2049}
 ```
 
-成功返回：
+返回：
 
 ```json
 {
   "id": 6,
-  "result": {"success": true},
-  "error": null
-}
-```
-
-错误返回（示例）：
-
-```json
-{
-  "id": 6,
-  "result": null,
-  "error": "设置保护策略失败: ..."
+  "result": {"success": false},
+  "error": "SetProtectPolicy 已废弃，请使用 ProtectProcess(level)"
 }
 ```
 

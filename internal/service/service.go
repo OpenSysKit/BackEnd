@@ -282,8 +282,11 @@ func (t *ToolkitService) ElevateProcess(args *ElevateProcessArgs, reply *Elevate
 }
 
 // ProtectProcessArgs 保护进程请求参数
+// Level 使用 PS_PROTECTION.Level 编码：(Signer << 4) | Type
+// 默认 0x31 (Antimalware-Light)
 type ProtectProcessArgs struct {
 	ProcessId uint32 `json:"process_id"`
+	Level     *uint8 `json:"level,omitempty"`
 }
 
 // ProtectProcessReply 保护进程响应
@@ -291,31 +294,42 @@ type ProtectProcessReply struct {
 	Success bool `json:"success"`
 }
 
-// ProtectProcess 保护指定进程
+// ProtectProcess 保护指定进程（基于 OpenSysKit PPL）
 func (t *ToolkitService) ProtectProcess(args *ProtectProcessArgs, reply *ProtectProcessReply) error {
-	if t.WinDriveDriver == nil {
-		err := fmt.Errorf("WinDrive 未加载")
-		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, err)
+	if t.Driver == nil {
+		err := fmt.Errorf("驱动未加载")
+		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId, "level": args.Level}, err)
 		return err
 	}
 
-	req := driver.ProcessRequest{ProcessId: args.ProcessId}
+	if args.ProcessId == 0 || args.ProcessId == 4 {
+		err := fmt.Errorf("process_id 不合法，不能为 0 或 4")
+		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId, "level": args.Level}, err)
+		return err
+	}
+
+	level := uint8(0x31)
+	if args.Level != nil {
+		level = *args.Level
+	}
+
+	req := driver.ProcessProtectRequest{ProcessId: args.ProcessId, ProtectionLevel: level}
 	inBuf := new(bytes.Buffer)
 	err := binary.Write(inBuf, binary.LittleEndian, req)
 	if err != nil {
 		return fmt.Errorf("构造请求失败: %w", err)
 	}
 
-	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_PROTECT_PROCESS, inBuf.Bytes(), 0)
+	_, err = t.Driver.IoControl(driver.IOCTL_SET_PROTECT_LEVEL, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
 		retErr := fmt.Errorf("保护进程失败: %w", err)
-		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, retErr)
+		auditWrite("protect_process", map[string]any{"process_id": args.ProcessId, "level": level}, retErr)
 		return retErr
 	}
 
 	reply.Success = true
-	auditWrite("protect_process", map[string]any{"process_id": args.ProcessId}, nil)
+	auditWrite("protect_process", map[string]any{"process_id": args.ProcessId, "level": level}, nil)
 	return nil
 }
 
@@ -329,10 +343,10 @@ type UnprotectProcessReply struct {
 	Success bool `json:"success"`
 }
 
-// UnprotectProcess 取消保护指定进程
+// UnprotectProcess 取消保护指定进程（恢复原始 Protection）
 func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *UnprotectProcessReply) error {
-	if t.WinDriveDriver == nil {
-		err := fmt.Errorf("WinDrive 未加载")
+	if t.Driver == nil {
+		err := fmt.Errorf("驱动未加载")
 		auditWrite("unprotect_process", map[string]any{"process_id": args.ProcessId}, err)
 		return err
 	}
@@ -344,7 +358,7 @@ func (t *ToolkitService) UnprotectProcess(args *UnprotectProcessArgs, reply *Unp
 		return fmt.Errorf("构造请求失败: %w", err)
 	}
 
-	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_UNPROTECT_PROCESS, inBuf.Bytes(), 0)
+	_, err = t.Driver.IoControl(driver.IOCTL_UNPROTECT_PROCESS, inBuf.Bytes(), 0)
 	if err != nil {
 		reply.Success = false
 		retErr := fmt.Errorf("取消保护进程失败: %w", err)
@@ -368,35 +382,12 @@ type SetProtectPolicyReply struct {
 	Success bool `json:"success"`
 }
 
-// SetProtectPolicy 下发 WinDrive 保护策略
+// SetProtectPolicy 下发 WinDrive 保护策略（已废弃）
 func (t *ToolkitService) SetProtectPolicy(args *SetProtectPolicyArgs, reply *SetProtectPolicyReply) error {
-	if t.WinDriveDriver == nil {
-		err := fmt.Errorf("WinDrive 未加载")
-		auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, err)
-		return err
-	}
-
-	req := driver.ProtectPolicyRequest{
-		Version:        args.Version,
-		DenyAccessMask: args.DenyAccessMask,
-	}
-	inBuf := new(bytes.Buffer)
-	err := binary.Write(inBuf, binary.LittleEndian, req)
-	if err != nil {
-		return fmt.Errorf("构造请求失败: %w", err)
-	}
-
-	_, err = t.WinDriveDriver.IoControl(driver.IOCTL_WINDRIVE_SET_PROTECT_POLICY, inBuf.Bytes(), 0)
-	if err != nil {
-		reply.Success = false
-		retErr := fmt.Errorf("设置保护策略失败: %w", err)
-		auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, retErr)
-		return retErr
-	}
-
-	reply.Success = true
-	auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, nil)
-	return nil
+	err := fmt.Errorf("SetProtectPolicy 已废弃，请使用 ProtectProcess(level)")
+	reply.Success = false
+	auditWrite("set_protect_policy", map[string]any{"version": args.Version, "deny_access_mask": args.DenyAccessMask}, err)
+	return err
 }
 
 // ListDirectoryArgs 文件管理-列目录请求参数

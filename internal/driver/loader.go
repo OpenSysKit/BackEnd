@@ -242,6 +242,9 @@ func (l *Loader) MapDriver(sysPath string) (uint64, error) {
 	if resp.Status != 0 {
 		return 0, fmt.Errorf("加载器返回错误状态: 0x%x", resp.Status)
 	}
+	if resp.DriverHandle == 0 {
+		return 0, fmt.Errorf("加载器返回无效句柄: 0")
+	}
 
 	l.mappedHandles = append(l.mappedHandles, resp.DriverHandle)
 	return resp.DriverHandle, nil

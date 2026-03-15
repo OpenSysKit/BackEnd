@@ -32,6 +32,7 @@ var (
 	IOCTL_HIDE_PROCESS         = CTL_CODE(deviceTypeOpenSysKit, 0x80C, methodBuffered, fileAnyAccess)
 	IOCTL_UNHIDE_PROCESS       = CTL_CODE(deviceTypeOpenSysKit, 0x80D, methodBuffered, fileAnyAccess)
 	IOCTL_INJECT_DLL           = CTL_CODE(deviceTypeOpenSysKit, 0x80E, methodBuffered, fileAnyAccess)
+	IOCTL_SET_PROTECT_LEVEL    = CTL_CODE(deviceTypeOpenSysKit, 0x80F, methodBuffered, fileAnyAccess)
 	IOCTL_DELETE_FILE          = CTL_CODE(deviceTypeOpenSysKit, 0x810, methodBuffered, fileAnyAccess)
 	IOCTL_ENUM_KERNEL_MODULES  = CTL_CODE(deviceTypeOpenSysKit, 0x820, methodBuffered, fileAnyAccess)
 	IOCTL_UNLOAD_DRIVER        = CTL_CODE(deviceTypeOpenSysKit, 0x821, methodBuffered, fileAnyAccess)
@@ -66,6 +67,13 @@ const (
 // ProcessRequest 对应内核中 PROCESS_REQUEST 结构体。
 type ProcessRequest struct {
 	ProcessId uint32
+}
+
+// ProcessProtectRequest 对应内核中 PROCESS_PROTECT_REQUEST 结构体。
+type ProcessProtectRequest struct {
+	ProcessId       uint32
+	ProtectionLevel uint8
+	Reserved        [3]byte
 }
 
 // ProcessElevateRequest 对应内核中 PROCESS_ELEVATE_REQUEST 结构体。
